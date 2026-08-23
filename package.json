@@ -1,0 +1,53 @@
+{
+  "name": "map-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare:data": "node scripts/prepare-data.mjs && node scripts/prepare-delhi-data.mjs && node scripts/prepare-election-data.mjs && node scripts/prepare-usa-china-data.mjs",
+    "prepare:delhi-data": "node scripts/prepare-delhi-data.mjs",
+    "prepare:election-data": "node scripts/prepare-election-data.mjs",
+    "prepare:usa-china-data": "node scripts/prepare-usa-china-data.mjs",
+    "lint": "tsc --noEmit",
+    "production:build": "npm run build -w @map-studio/render-platform",
+    "production:test": "npm run test -w @map-studio/render-platform",
+    "production:api": "npm run dev:api -w @map-studio/render-platform",
+    "production:worker": "npm run dev:worker -w @map-studio/render-platform",
+    "production:renderer": "npm run dev:renderer -w @map-studio/render-platform",
+    "verify": "npm run lint && npm test -- --run && npm run production:test && npm run production:build && npm run build"
+  },
+  "dependencies": {
+    "d3-geo": "^3.1.1",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.468.0",
+    "maplibre-gl": "^4.7.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "read-excel-file": "^9.3.10",
+    "zod": "^3.23.8",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/d3-geo": "^3.1.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.14",
+    "@types/react-dom": "^18.3.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "fflate": "^0.8.2",
+    "jsdom": "^25.0.1",
+    "polygon-clipping": "^0.15.7",
+    "proj4": "^2.21.0",
+    "shpjs": "^6.2.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "generatedAt": "2026-08-23T14:11:22.948Z",
+  "sources": [
+    {
+      "id": "gadm-4.1",
+      "organization": "Database of Global Administrative Areas",
+      "reference": "https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_IND_1.json",
+      "license": "GADM license; verify terms before redistribution",
+      "quality": "context-only"
+    },
+    {
+      "id": "gadm-4.1-usa",
+      "organization": "GADM · USA",
+      "reference": "https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_USA_0.json",
+      "license": "GADM license; verify terms before redistribution",
+      "quality": "country boundary context-only"
+    },
+    {
+      "id": "gadm-4.1-china",
+      "organization": "GADM · China",
+      "reference": "https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_CHN_0.json",
+      "license": "GADM license; verify terms before redistribution",
+      "quality": "country boundary clipped against the Survey of India outline"
+    },
+    {
+      "id": "datameet-india-ac",
+      "organization": "DataMeet",
+      "reference": "https://github.com/datameet/maps/tree/master/assembly-constituencies",
+      "license": "CC BY 4.0",
+      "quality": "open electoral boundary source; verify against current official delimitation before production use"
+    },
+    {
+      "id": "osm-nominatim-ramnagar",
+      "organization": "OpenStreetMap contributors / Nominatim",
+      "reference": "https://nominatim.openstreetmap.org/",
+      "license": "ODbL",
+      "quality": "place resolution context"
+    },
+    {
+      "id": "census-2011-city-dataset",
+      "organization": "IndianCities dataset",
+      "reference": "https://github.com/recurze/IndianCities",
+      "license": "Open source repository; verify terms before redistribution",
+      "quality": "Census 2011-derived city population ranking; verify against official Census tables before production use"
+    },
+    {
+      "id": "natural-earth-world",
+      "organization": "Natural Earth / D3 Graph Gallery mirror",
+      "reference": "https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson",
+      "license": "Public domain Natural Earth derivative",
+      "quality": "low-resolution country context; use higher-resolution boundary versions for production analysis"
+    },
+    {
+      "id": "survey-of-india-official",
+      "organization": "Survey of India · Government of India",
+      "reference": "https://surveyofindia.gov.in/documents/Outline_of_India.zip",
+      "license": "Government of India; access terms apply",
+      "quality": "official generalized outline vector at 1:16M scale"
+    },
+    {
+      "id": "survey-of-india-jk-ladakh",
+      "organization": "Survey of India · J&K and Ladakh",
+      "reference": "https://www.surveyofindia.gov.in/pages/geospatial-digital-data-register · https://raw.githubusercontent.com/AbhinavSwami28/india-official-geojson/main/india-states-simplified.geojson",
+      "license": "Source-aligned public GeoJSON; verify against current Survey of India data before production use",
+      "quality": "separate current Union Territory outlines for J&K and Ladakh"
+    },
+    {
+      "id": "nwic-gsi-districts",
+      "organization": "National Water Data Portal · Geological Survey of India",
+      "reference": "https://www.nwdp.nwic.gov.in/dataset/district-boundary",
+      "license": "Government of India open-data resource; access terms apply",
+      "quality": "May 2025 published vector with Delhi's 11 pre-reorganisation district boundaries; reprojected from EPSG:7755 to WGS 84"
+    },
+    {
+      "id": "ceo-delhi-ac-reference",
+      "organization": "Chief Electoral Officer, Delhi",
+      "reference": "https://ceodelhi.gov.in/AcListEng.aspx",
+      "license": "Government of NCT of Delhi; access terms apply",
+      "quality": "official reference list validating Delhi's 70 Assembly constituencies"
+    },
+    {
+      "id": "datameet-india-pc-2019",
+      "organization": "DataMeet · 2019 parliamentary constituencies",
+      "reference": "https://github.com/datameet/maps/tree/master/parliamentary-constituencies",
+      "license": "CC BY 4.0",
+      "quality": "543-seat 2019 Lok Sabha boundary source; verify against current delimitation before production analysis"
+    },
+    {
+      "id": "us-census-2024",
+      "organization": "United States Census Bureau",
+      "reference": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_county_5m.zip",
+      "license": "U.S. Census Bureau cartographic boundary files; public-domain U.S. government work",
+      "quality": "2024 1:5,000,000 state and county cartographic boundaries; 50 states and District of Columbia"
+    },
+    {
+      "id": "us-census-2024-sldl",
+      "organization": "United States Census Bureau · 2024 State Legislative Districts",
+      "reference": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_sldl_500k.zip",
+      "license": "U.S. Census Bureau cartographic boundary files; public-domain U.S. government work",
+      "quality": "2024 lower-chamber state legislative district plans submitted by states"
+    },
+    {
+      "id": "us-census-2024-cd119",
+      "organization": "United States Census Bureau · 119th Congress",
+      "reference": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_cd119_500k.zip",
+      "license": "U.S. Census Bureau cartographic boundary files; public-domain U.S. government work",
+      "quality": "119th Congressional Districts in effect for January 2025–2027"
+    },
+    {
+      "id": "gadm-4.1-china-admin",
+      "organization": "GADM · China administrative divisions",
+      "reference": "https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_CHN_2.json",
+      "license": "GADM license; verify terms before redistribution",
+      "quality": "Province, prefecture, and county context; clipped against the Survey of India outline"
+    },
+    {
+      "id": "npc-china-admin-context",
+      "organization": "National People’s Congress · constitutional structure with GADM geometry",
+      "reference": "https://www.npc.gov.cn/englishnpc/constitution2019/201911/t20191120_384295.html",
+      "license": "Legal reference with GADM administrative geometry; GADM terms apply",
+      "quality": "Province-level electoral-unit context only; not published constituency polygons"
+    }
+  ]
+}
