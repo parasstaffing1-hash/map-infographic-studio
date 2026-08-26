@@ -1,22 +1,30 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, BarChart3, Bookmark, Check, ChevronDown, CircleHelp, Command, Database, Download, Eye, EyeOff, Factory, FileImage, Filter, Landmark, Layers3, LayoutTemplate, Map as MapIcon, MapPinned, Palette, Redo2, Save, Search, Settings2, Share2, SlidersHorizontal, Sparkles, Type, Undo2, Users, Video, X } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Bookmark, Check, ChevronDown, CircleHelp, Command, Database, Download, Eye, EyeOff, Factory, FileImage, Filter, FolderOpen, Landmark, Layers3, LayoutTemplate, Map as MapIcon, MapPinned, Palette, Redo2, Save, Search, Settings2, Share2, SlidersHorizontal, Sparkles, Type, Undo2, Users, Video, X } from 'lucide-react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { AnnotationLayer } from './components/AnnotationLayer';
+import { CompositionCanvas } from './components/CompositionCanvas';
 import { InfographicEditorPanel } from './components/InfographicEditorPanel';
 import { MapCanvas } from './components/MapCanvas';
 import { ProductionPanel } from './components/ProductionPanel';
 import { StatistaStoryOverlay } from './components/StatistaStoryOverlay';
 import { sourceCatalog } from './domain/data';
-import { createVisualization, dataYears, DEFAULT_INFOGRAPHIC_CONFIG, type Annotation, type DataRow, type InfographicConfig } from './domain/infographic';
+import { compositionById, compositionHasMap, DEFAULT_COMPOSITION_ID } from './domain/composition';
+import { applyRegionOverrides, attributionLine } from './domain/dataSources';
+import { createVisualization, dataYears, type Annotation, type DataRow, type InfographicConfig } from './domain/infographic';
+import { can, readSharedProjectFromLocation, type ProjectRole } from './domain/projects';
+import { DEFAULT_VIDEO_SPEC, frameState, totalFrames, type VideoSpec } from './domain/videoTimeline';
+import { useStudioProject } from './store/useStudioProject';
 import { configForInfographicTemplate, infographicCategories, infographicTemplates, rowsForInfographicTemplate, searchInfographicTemplates, testGeneralInfographicTemplates, testMapInfographicTemplates, testVideoTemplates, type InfographicCategory, type InfographicTemplate } from './domain/infographicTemplates';
 import { parseMapRequest } from './domain/parser';
 import { countryTemplates, districtTemplates, templateForScope, type DistrictTemplate } from './domain/templates';
 import type { EditorCommand, FilterSpec, GeoFeature, ResolvedEntity, ViewMode } from './domain/types';
 import { useMapStudio } from './store/useMapStudio';
 
-const DataBindingPanel = lazy(() => import('./components/DataBindingPanel').then((module) => ({ default: module.DataBindingPanel })));
-const ExportPanel = lazy(() => import('./components/ExportPanel').then((module) => ({ default: module.ExportPanel })));
-const PixelVideoPanel = lazy(() => import('./components/PixelVideoPanel').then((module) => ({ default: module.PixelVideoPanel })));
+const DataConnectionsPanel = lazy(() => import('./components/DataConnectionsPanel').then((module) => ({ default: module.DataConnectionsPanel })));
+const ExportStudioPanel = lazy(() => import('./components/ExportStudioPanel').then((module) => ({ default: module.ExportStudioPanel })));
+const VideoStudioPanel = lazy(() => import('./components/VideoStudioPanel').then((module) => ({ default: module.VideoStudioPanel })));
+const ChartStudioPanel = lazy(() => import('./components/ChartStudioPanel').then((module) => ({ default: module.ChartStudioPanel })));
+const ProjectsPanel = lazy(() => import('./components/ProjectsPanel').then((module) => ({ default: module.ProjectsPanel })));
 
 const suggestions = [
   'Make a map of India',
@@ -38,6 +46,9 @@ const suggestions = [
 const INDIA_LEVELS: ViewMode[] = ['india-districts', 'india-assembly', 'india-parliament'];
 const USA_LEVELS: ViewMode[] = ['usa-counties', 'usa-state-house', 'usa-congress'];
 const CHINA_LEVELS: ViewMode[] = ['china-prefectures', 'china-counties', 'china-npc'];
+/** Longest a single video frame may wait for the map before it is captured anyway. */
+const VIDEO_FRAME_SETTLE_MS = 1_200;
+
 const PRODUCTION_VIEW_MODES: ViewMode[] = ['world', 'india', 'usa', 'china', ...INDIA_LEVELS, ...USA_LEVELS, ...CHINA_LEVELS];
 
 type StoredProject = { rows?: DataRow[]; config?: Partial<InfographicConfig>; annotations?: Annotation[]; currentYear?: string };
@@ -129,10 +140,13 @@ export default function App() {
     request, commandText, viewMode, editorMode, selectedIds, hiddenLayers, style, filters, saveState,
     setCommandText, runCommand, setViewMode, setEditorMode, toggleLayer, setSelection, setStyle, removeFilter, undo, redo, markSaved,
   } = useMapStudio();
-  const storedProject = useMemo(readStoredProject, []);
+  const sharedPayload = useMemo(() => readSharedProjectFromLocation(window.location.search, window.location.hash), []);
+  const role: ProjectRole = sharedPayload ? 'viewer' : 'owner';
+  const studio = useStudioProject(role);
+  const project = studio.project;
   const [selectedEntity, setSelectedEntity] = useState<ResolvedEntity | null>(null);
   const [focusPlace, setFocusPlace] = useState<string | undefined>(request.viewport.fitEntity);
-  const [activeNav, setActiveNav] = useState<'search' | 'layers' | 'data' | 'infographics' | 'templates' | 'filters' | 'saved' | 'video' | 'export' | 'production'>('layers');
+  const [activeNav, setActiveNav] = useState<'search' | 'layers' | 'data' | 'charts' | 'infographics' | 'templates' | 'filters' | 'projects' | 'saved' | 'video' | 'export' | 'production'>('layers');
   const [mapInstance, setMapInstance] = useState<MapLibreMap | null>(null);
   const [pixelVideoActive, setPixelVideoActive] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -141,11 +155,26 @@ export default function App() {
   const [districtScope, setDistrictScope] = useState<string | undefined>();
   const [activeFeatures, setActiveFeatures] = useState<GeoFeature[]>([]);
   const [activeFeatureViewMode, setActiveFeatureViewMode] = useState<ViewMode>();
-  const [dataRows, setDataRows] = useState<DataRow[]>(storedProject?.rows ?? []);
-  const [infographicConfig, setInfographicConfig] = useState<InfographicConfig>({ ...DEFAULT_INFOGRAPHIC_CONFIG, ...storedProject?.config });
-  const [annotations, setAnnotations] = useState<Annotation[]>(storedProject?.annotations ?? []);
-  const [currentYear, setCurrentYear] = useState<string | undefined>(storedProject?.currentYear);
   const [activeInfographicId, setActiveInfographicId] = useState<string>();
+  const [videoSpec, setVideoSpec] = useState<VideoSpec>(DEFAULT_VIDEO_SPEC);
+  const [previewFrame, setPreviewFrame] = useState(0);
+  // Bumped on every setFrame call so re-requesting the current frame still settles.
+  const [frameTick, setFrameTick] = useState(0);
+  const [isVideoRenderMode, setIsVideoRenderMode] = useState(false);
+
+  // A shared link opens the project read-only; nothing is written back to storage.
+  const dataRows = sharedPayload?.rows ?? project.rows;
+  const infographicConfig = sharedPayload?.config ?? project.config;
+  const annotations = sharedPayload?.annotations ?? project.annotations;
+  const currentYear = sharedPayload?.currentYear ?? project.currentYear;
+  const compositionId = sharedPayload?.compositionId ?? project.compositionId ?? DEFAULT_COMPOSITION_ID;
+  const chartOverrides = sharedPayload?.chartOverrides ?? project.chartOverrides;
+  const datasetMeta = sharedPayload?.datasetMeta ?? project.datasetMeta;
+  const composition = compositionById(compositionId);
+  const setDataRows = studio.setRows;
+  const setAnnotations = studio.setAnnotations;
+  const setCurrentYear = useCallback((year?: string) => studio.patch({ currentYear: year }), [studio]);
+  const setInfographicConfig = studio.patchConfig;
 
   const districtTemplate = templateForScope(districtScope);
   const districtLabel = districtTemplate?.label ?? (districtScope ? focusPlace : undefined);
@@ -163,7 +192,14 @@ export default function App() {
   const displayGeography = districtScope ? districtLabel ?? 'Selected region' : countryWorkspace ?? request.place ?? rootGeography;
   const requestLabel = isPoliticalLevel || request.mapType === 'political' ? 'Political map' : request.mapType === 'demographic' ? 'Population map' : 'Boundary exploration';
   const years = useMemo(() => dataYears(dataRows), [dataRows]);
-  const visualization = useMemo(() => createVisualization(dataRows, activeFeatures, currentYear, infographicConfig), [activeFeatures, currentYear, dataRows, infographicConfig]);
+  // Manual name corrections are applied before matching so a fixed name colours its region.
+  const resolvedRows = useMemo(() => applyRegionOverrides(dataRows, project.regionOverrides ?? {}), [dataRows, project.regionOverrides]);
+  const videoFrame = useMemo(() => frameState(videoSpec, previewFrame, resolvedRows, infographicConfig, years), [infographicConfig, previewFrame, resolvedRows, videoSpec, years]);
+  // The timeline only drives the map while the video studio is actually open,
+  // so opening a video template does not silently rewind the year on the canvas.
+  const isPreviewingVideo = activeNav === 'video' && pixelVideoActive;
+  const displayYear = isVideoRenderMode || isPreviewingVideo ? videoFrame.year ?? currentYear : currentYear;
+  const visualization = useMemo(() => createVisualization(resolvedRows, activeFeatures, displayYear, infographicConfig), [activeFeatures, displayYear, resolvedRows, infographicConfig]);
   const dataVisuals = dataRows.length ? visualization.byFeatureId : {};
   const isEditorialStory = infographicConfig.presentation === 'editorial';
   const isStatistaStory = infographicConfig.presentation === 'statista';
@@ -174,8 +210,20 @@ export default function App() {
     document.body.classList.add('render-mode');
     const requestedView = params.get('viewMode') as ViewMode | null;
     if (requestedView && PRODUCTION_VIEW_MODES.includes(requestedView)) setViewMode(requestedView);
+    const requestedComposition = params.get('composition');
+    if (requestedComposition) studio.patch({ compositionId: requestedComposition });
+    if (params.get('mode') === 'video') {
+      setIsVideoRenderMode(true);
+      try {
+        const stored = JSON.parse(localStorage.getItem('map-studio-video-spec') ?? 'null') as VideoSpec | null;
+        if (stored) setVideoSpec({ ...DEFAULT_VIDEO_SPEC, ...stored });
+      } catch {
+        // A malformed spec falls back to the defaults rather than blocking the render.
+      }
+    }
     setEditorMode('viewer');
     return () => document.body.classList.remove('render-mode');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setEditorMode, setViewMode]);
 
   useEffect(() => {
@@ -183,14 +231,10 @@ export default function App() {
   }, [currentYear, years]);
 
   useEffect(() => {
-    localStorage.setItem('map-studio-infographic-v1', JSON.stringify({ rows: dataRows, config: infographicConfig, annotations, currentYear }));
-  }, [annotations, currentYear, dataRows, infographicConfig]);
-
-  useEffect(() => {
     if (!activeInfographic?.demoMode || activeFeatureViewMode !== activeInfographic.viewMode || viewMode !== activeInfographic.viewMode || !activeFeatures.length) return;
     const rows = rowsForInfographicTemplate(activeInfographic, activeFeatures);
     if (!rows.length) return;
-    setDataRows(rows);
+    setDataRows(rows, { origin: 'template-demo', synthetic: true, rowCount: rows.length });
     const demoYears = dataYears(rows);
     setCurrentYear(demoYears.at(-1));
     setNotice(`${activeInfographic.title} ready · ${rows.length} synthetic demo rows`);
@@ -198,14 +242,60 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [activeFeatureViewMode, activeFeatures, activeInfographic, viewMode]);
 
-  const patchInfographicConfig = useCallback((patch: Partial<InfographicConfig>) => setInfographicConfig((current) => ({ ...current, ...patch })), []);
-  const restoreProject = useCallback((project: StoredProject) => {
-    if (Array.isArray(project.rows)) setDataRows(project.rows);
-    if (project.config) setInfographicConfig((current) => ({ ...current, ...project.config }));
-    if (Array.isArray(project.annotations)) setAnnotations(project.annotations);
-    setCurrentYear(project.currentYear);
+  // The server video renderer drives frames through this bridge. Keeping it in one
+  // place means the browser preview and the server render share the same timeline.
+  useEffect(() => {
+    if (!isVideoRenderMode) return undefined;
+    window.__mapStudioVideo = {
+      ready: true,
+      totalFrames: totalFrames(videoSpec),
+      settled: false,
+      setFrame: (frame: number) => {
+        window.__mapStudioVideo!.settled = false;
+        setPreviewFrame(Math.max(0, Math.min(frame, totalFrames(videoSpec) - 1)));
+        setFrameTick((tick) => tick + 1);
+      },
+    };
+    return () => { delete window.__mapStudioVideo; };
+  }, [isVideoRenderMode, videoSpec]);
+
+  // Mark the frame settled once the map has repainted it. The map's 'idle' event
+  // settles the frame as soon as it is genuinely ready; the timer is the backstop
+  // so a frame can never hang the renderer when no idle event arrives (a
+  // composition without a map, or a page that is not compositing).
+  useEffect(() => {
+    if (!isVideoRenderMode || !window.__mapStudioVideo) return undefined;
+    let cancelled = false;
+    const settle = () => {
+      if (cancelled || !window.__mapStudioVideo) return;
+      window.__mapStudioVideo.settled = true;
+    };
+    const backstop = window.setTimeout(settle, VIDEO_FRAME_SETTLE_MS);
+    if (!mapInstance) {
+      return () => { cancelled = true; window.clearTimeout(backstop); };
+    }
+    mapInstance.once('idle', settle);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(backstop);
+      mapInstance.off('idle', settle);
+    };
+  }, [frameTick, isVideoRenderMode, mapInstance, previewFrame, videoFrame.year]);
+
+  // Camera-tour mode moves the map itself, frame by frame.
+  useEffect(() => {
+    if (!videoFrame.camera || !mapInstance) return;
+    mapInstance.jumpTo(videoFrame.camera);
+  }, [mapInstance, videoFrame.camera]);
+
+  const patchInfographicConfig = useCallback((patch: Partial<InfographicConfig>) => setInfographicConfig(patch), [setInfographicConfig]);
+  const restoreProject = useCallback((stored: StoredProject) => {
+    if (Array.isArray(stored.rows)) setDataRows(stored.rows);
+    if (stored.config) setInfographicConfig(stored.config);
+    if (Array.isArray(stored.annotations)) setAnnotations(stored.annotations);
+    setCurrentYear(stored.currentYear);
     setNotice('Editable infographic project restored');
-  }, []);
+  }, [setAnnotations, setCurrentYear, setDataRows, setInfographicConfig]);
 
   const handleCommand = (value: string) => {
     setActiveInfographicId(undefined);
@@ -242,7 +332,11 @@ export default function App() {
   };
 
   const handleInfographicTemplate = (template: InfographicTemplate) => {
-    const rows = rowsForInfographicTemplate(template);
+    // Real imported data always wins over a template's sample rows, so switching
+    // templates restyles the story instead of discarding the user's dataset.
+    const userOwnsData = dataRows.length > 0 && !datasetMeta.synthetic && datasetMeta.origin !== 'template-demo';
+    const templateRows = userOwnsData ? [] : rowsForInfographicTemplate(template);
+    const templateConfig = configForInfographicTemplate(template);
     setActiveInfographicId(template.id);
     setDistrictScope(undefined);
     setFocusPlace(template.geoScope === 'Chile' ? 'Chile' : undefined);
@@ -250,22 +344,33 @@ export default function App() {
     setEditorMode('editor');
     setSelectedEntity(null);
     setSelection([]);
-    setInfographicConfig(configForInfographicTemplate(template));
-    setDataRows(rows);
-    setCurrentYear(rows.some((row) => row.year === '2024') ? '2024' : undefined);
-    setAnnotations(template.presentation === 'editorial' ? [] : [{
-      id: `template-stat-${template.id}`,
-      type: 'text',
-      text: `${template.statsHook.value} · ${template.statsHook.label}`,
-      x: 81,
-      y: 16,
-      color: template.previewColor,
-      size: 12,
-    }]);
+    // Keep the user's own title, subtitle and source when they have written one.
+    setInfographicConfig(userOwnsData
+      ? { ...templateConfig, title: infographicConfig.title, subtitle: infographicConfig.subtitle, source: infographicConfig.source, note: infographicConfig.note }
+      : templateConfig);
+    if (!userOwnsData) {
+      setDataRows(templateRows, { origin: 'template-demo', synthetic: Boolean(template.demoMode) || templateRows.length > 0, publisher: template.source ?? '', rowCount: templateRows.length });
+      setCurrentYear(templateRows.some((row) => row.year === '2024') ? '2024' : undefined);
+      setAnnotations(template.presentation === 'editorial' ? [] : [{
+        id: `template-stat-${template.id}`,
+        type: 'text',
+        text: `${template.statsHook.value} · ${template.statsHook.label}`,
+        x: 81,
+        y: 16,
+        color: template.previewColor,
+        size: 12,
+      }]);
+    }
     setStyle({ fill: template.previewColor, opacity: 0.84, lineWidth: 1.6 });
     setPixelVideoActive(template.openPanel === 'video');
     setActiveNav(template.openPanel);
-    setNotice(template.demoMode ? `${template.title} · preparing synthetic demo data` : rows.length ? `${template.title} loaded with ${rows.length} source rows` : `${template.title} storyboard ready · connect data to publish`);
+    setNotice(userOwnsData
+      ? `${template.title} styling applied · your ${dataRows.length} rows kept`
+      : template.demoMode
+        ? `${template.title} · preparing synthetic demo data`
+        : templateRows.length
+          ? `${template.title} loaded with ${templateRows.length} sample rows`
+          : `${template.title} storyboard ready · connect data to publish`);
     window.setTimeout(() => setNotice(''), 3200);
   };
 
@@ -328,6 +433,26 @@ export default function App() {
   };
 
   const filteredSources = useMemo(() => sourceCatalog, []);
+  const isComposed = compositionId !== DEFAULT_COMPOSITION_ID;
+  const hasMapBlock = compositionHasMap(composition);
+  const mapCanvas = (
+    <MapCanvas
+      viewMode={viewMode}
+      selectedIds={selectedIds}
+      hiddenLayers={hiddenLayers}
+      style={style}
+      focusPlace={focusPlace}
+      placeContext={request.parentGeography}
+      districtScope={districtScope}
+      districtScopeLabel={districtLabel}
+      onSelect={handleSelect}
+      onLoad={setFeatureCount}
+      onMapReady={setMapInstance}
+      dataVisuals={dataVisuals}
+      infographicConfig={infographicConfig}
+      onFeatures={(features, loadedViewMode) => { setActiveFeatures(features); setActiveFeatureViewMode(loadedViewMode); }}
+    />
+  );
 
   return (
     <div className="app-shell">
@@ -349,11 +474,13 @@ export default function App() {
           <button className={`rail-button ${activeNav === 'search' ? 'active' : ''}`} onClick={() => setActiveNav('search')}><Search size={18} /><span>Search</span></button>
           <button className={`rail-button ${activeNav === 'layers' ? 'active' : ''}`} onClick={() => setActiveNav('layers')}><Layers3 size={18} /><span>Layers</span></button>
           <button className={`rail-button ${activeNav === 'data' ? 'active' : ''}`} onClick={() => setActiveNav('data')}><Database size={18} /><span>Data</span></button>
-          <button className={`rail-button ${activeNav === 'infographics' ? 'active' : ''}`} onClick={() => setActiveNav('infographics')}><BarChart3 size={18} /><span>Infographics</span></button>
+          <button className={`rail-button ${activeNav === 'charts' ? 'active' : ''}`} onClick={() => setActiveNav('charts')}><BarChart3 size={18} /><span>Charts</span></button>
+          <button className={`rail-button ${activeNav === 'infographics' ? 'active' : ''}`} onClick={() => setActiveNav('infographics')}><Sparkles size={18} /><span>Infographics</span></button>
           <button className={`rail-button ${activeNav === 'templates' ? 'active' : ''}`} onClick={() => setActiveNav('templates')}><LayoutTemplate size={18} /><span>Templates</span></button>
           <button className={`rail-button ${activeNav === 'filters' ? 'active' : ''}`} onClick={() => setActiveNav('filters')}><Filter size={18} /><span>Filters</span>{filters.length > 0 && <em>{filters.length}</em>}</button>
+          <button className={`rail-button ${activeNav === 'projects' ? 'active' : ''}`} onClick={() => setActiveNav('projects')}><FolderOpen size={18} /><span>Projects</span></button>
           <button className={`rail-button ${activeNav === 'saved' ? 'active' : ''}`} onClick={() => setActiveNav('saved')}><Bookmark size={18} /><span>Saved views</span></button>
-          <button className={`rail-button ${activeNav === 'video' ? 'active' : ''}`} onClick={() => setActiveNav('video')}><Video size={18} /><span>Pixel video</span></button>
+          <button className={`rail-button ${activeNav === 'video' ? 'active' : ''}`} onClick={() => setActiveNav('video')}><Video size={18} /><span>Video studio</span></button>
           <button className={`rail-button ${activeNav === 'export' ? 'active' : ''}`} onClick={() => setActiveNav('export')}><Download size={18} /><span>Export</span></button>
           <button className={`rail-button ${activeNav === 'production' ? 'active' : ''}`} onClick={() => setActiveNav('production')}><Factory size={18} /><span>Production</span></button>
           <div className="rail-spacer" />
@@ -364,13 +491,15 @@ export default function App() {
           {activeNav === 'search' && <SearchPanel searchText={searchText} setSearchText={setSearchText} onRun={handleCommand} />}
           {activeNav === 'layers' && <LayersPanel viewMode={viewMode} placeName={request.place} districtScope={districtScope} scopeLabel={districtLabel} hiddenLayers={hiddenLayers} onView={handleTab} onToggle={toggleLayer} featureCount={visibleFeatureCount} />}
           <Suspense fallback={<div className="panel-content panel-loading">Loading module…</div>}>
-          {activeNav === 'data' && <DataBindingPanel rows={dataRows} features={activeFeatures} years={years} currentYear={currentYear} result={visualization} sources={filteredSources} onRowsChange={setDataRows} onYearChange={setCurrentYear} onToast={setNotice} />}
+          {activeNav === 'data' && <DataConnectionsPanel rows={dataRows} features={activeFeatures} years={years} currentYear={currentYear} result={visualization} sources={filteredSources} datasetMeta={datasetMeta} regionOverrides={project.regionOverrides ?? {}} onRowsChange={setDataRows} onYearChange={setCurrentYear} onMetaChange={studio.patchDatasetMeta} onRegionOverride={studio.setRegionOverride} onToast={setNotice} />}
+          {activeNav === 'charts' && <ChartStudioPanel compositionId={compositionId} chartOverrides={chartOverrides} rows={resolvedRows} years={years} onComposition={(id) => studio.patch({ compositionId: id, config: { ...infographicConfig, ...(compositionById(id).configPatch ?? {}), aspect: compositionById(id).aspect } })} onChartOverride={studio.setChartOverride} onResetOverrides={studio.resetChartOverrides} onToast={setNotice} />}
           {activeNav === 'infographics' && <InfographicsPanel onUse={handleInfographicTemplate} />}
           {activeNav === 'templates' && <TemplatesPanel onUse={handleTemplate} />}
           {activeNav === 'filters' && <FiltersPanel filters={filters} onRemove={removeFilter} />}
-          {activeNav === 'saved' && <SavedPanel title={infographicConfig.title || canvasTitle} rows={dataRows.length} annotations={annotations.length} onSave={() => { localStorage.setItem('map-studio-infographic-v1', JSON.stringify({ rows: dataRows, config: infographicConfig, annotations, currentYear })); markSaved(); }} onRestore={restoreProject} onToast={setNotice} />}
-          {activeNav === 'video' && <PixelVideoPanel map={mapInstance} viewMode={viewMode} active={pixelVideoActive} years={years} currentYear={currentYear} title={infographicConfig.title || canvasTitle} source={infographicConfig.source} rows={dataRows} config={infographicConfig} onYearChange={setCurrentYear} onActiveChange={setPixelVideoActive} onToast={setNotice} />}
-          {activeNav === 'export' && <ExportPanel map={mapInstance} config={infographicConfig} legend={visualization.legend} annotations={annotations} rows={dataRows} currentYear={currentYear} fileStem={canvasTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map-infographic'} onToast={setNotice} />}
+          {activeNav === 'projects' && <ProjectsPanel projects={studio.projects} activeId={project.id} role={role} brandKits={studio.brandKits} activeBrandKitId={project.brandKitId} onOpen={studio.open} onCreate={studio.create} onRename={(name) => studio.patch({ name })} onDuplicate={studio.duplicate} onArchive={studio.setArchived} onSaveVersion={studio.saveVersion} onRestoreVersion={studio.restore} onBrandKit={studio.applyBrandKitById} onToast={setNotice} />}
+          {activeNav === 'saved' && <SavedPanel title={infographicConfig.title || canvasTitle} rows={dataRows.length} annotations={annotations.length} onSave={() => { studio.saveVersion('Manual save'); markSaved(); }} onRestore={restoreProject} onToast={setNotice} />}
+          {activeNav === 'video' && <VideoStudioPanel spec={videoSpec} onSpec={(patch) => setVideoSpec((current) => ({ ...current, ...patch }))} rows={resolvedRows} config={infographicConfig} years={years} viewMode={viewMode} compositionId={compositionId} templateId={activeInfographic?.id ?? 'custom-map'} annotations={annotations} currentYear={currentYear} previewFrame={previewFrame} onPreviewFrame={(frame) => { setPreviewFrame(frame); setPixelVideoActive(true); }} onToast={setNotice} />}
+          {activeNav === 'export' && <ExportStudioPanel map={mapInstance} compositionId={compositionId} config={infographicConfig} chartOverrides={chartOverrides} legend={visualization.legend} annotations={annotations} rows={resolvedRows} currentYear={displayYear} datasetMeta={datasetMeta} logoDataUrl={studio.brandKits.find((kit) => kit.id === project.brandKitId)?.logoDataUrl} canExport={can(role, 'export')} fileStem={canvasTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map-infographic'} onToast={setNotice} />}
           </Suspense>
           {activeNav === 'production' && <ProductionPanel templateId={activeInfographic?.id ?? 'custom-map'} viewMode={viewMode} onToast={setNotice} />}
         </aside>
@@ -400,7 +529,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className={`map-frame aspect-${infographicConfig.aspect.replace(':', '-')} ${pixelVideoActive ? 'pixel-video-active' : ''} ${isEditorialStory ? 'editorial-story' : ''} ${isStatistaStory ? 'statista-story' : ''}`} style={{ background: infographicConfig.background }}>
+          <div className={`map-frame aspect-${infographicConfig.aspect.replace(':', '-')} ${pixelVideoActive ? 'pixel-video-active' : ''} ${isEditorialStory ? 'editorial-story' : ''} ${isStatistaStory ? 'statista-story' : ''} ${isComposed ? 'composed' : ''}`} style={{ background: infographicConfig.background, opacity: isVideoRenderMode ? videoFrame.opacity : 1 }}>
             <div className="map-tabs">
               <button className={viewMode === 'place' ? 'active' : ''} onClick={() => handleTab('place')}>Place</button>
               <button className={viewMode === 'india' || isIndiaLevel ? 'active' : ''} onClick={() => handleTab('india')}>India</button>
@@ -428,16 +557,18 @@ export default function App() {
               <span className="map-tabs-divider" />
               <span className="map-scale-label">{scaleLabelForView(viewMode, featureCount, districtLabel)}</span>
             </div>
-            <MapCanvas viewMode={viewMode} selectedIds={selectedIds} hiddenLayers={hiddenLayers} style={style} focusPlace={focusPlace} placeContext={request.parentGeography} districtScope={districtScope} districtScopeLabel={districtLabel} onSelect={handleSelect} onLoad={setFeatureCount} onMapReady={setMapInstance} dataVisuals={dataVisuals} infographicConfig={infographicConfig} onFeatures={(features, loadedViewMode) => { setActiveFeatures(features); setActiveFeatureViewMode(loadedViewMode); }} />
+            {isComposed
+              ? <CompositionCanvas composition={composition} config={infographicConfig} rows={resolvedRows} currentYear={displayYear} chartOverrides={chartOverrides} mapSlot={hasMapBlock ? mapCanvas : null} />
+              : mapCanvas}
             {isEditorialStory && <>
               <div className="editorial-kicker"><span>{activeInfographic?.kicker ?? 'EDITORIAL MAP STORY'}</span><i /> <span>EDITABLE TEMPLATE</span></div>
               <div className="editorial-stat-card"><span>{activeInfographic?.statsHook.label}</span><strong>{activeInfographic?.statsHook.value}</strong>{activeInfographic?.statsHook.delta && <small>{activeInfographic.statsHook.delta}</small>}</div>
             </>}
             {isStatistaStory && <StatistaStoryOverlay rows={dataRows} config={infographicConfig} currentYear={currentYear} kicker={activeInfographic?.kicker ?? 'MAP DATA · RANKED COMPARISON'} statsHook={activeInfographic?.statsHook} />}
-            {infographicConfig.showTitle && <div className="infographic-title-overlay"><h2>{infographicConfig.title || currentTitle}</h2>{infographicConfig.subtitle && <p>{infographicConfig.subtitle}</p>}{currentYear && <span>{currentYear}</span>}</div>}
+            {infographicConfig.showTitle && !isComposed && <div className="infographic-title-overlay"><h2>{infographicConfig.title || currentTitle}</h2>{infographicConfig.subtitle && <p>{infographicConfig.subtitle}</p>}{currentYear && <span>{currentYear}</span>}</div>}
             <AnnotationLayer annotations={annotations} editable={editorMode === 'editor'} onChange={setAnnotations} />
             {pixelVideoActive && <div className="pixel-video-overlay" aria-hidden="true" />}
-            {infographicConfig.showLegend && <div className="map-legend">
+            {infographicConfig.showLegend && (!isComposed || hasMapBlock) && <div className="map-legend">
               <div className="legend-title">{dataRows.length ? 'Legend' : isPoliticalLevel ? 'Boundary source' : 'Map context'}</div>
               {dataRows.length ? visualization.legend.map((item) => <div className="legend-row" key={`${item.color}-${item.label}`}><span className="legend-swatch" style={{ background: item.color }} /> {item.label}</div>) : <><div className="legend-row"><span className="legend-swatch selected" /> Selected region</div>
               {viewMode === 'jammu-kashmir' ? <>
@@ -446,7 +577,7 @@ export default function App() {
               </> : <div className="legend-row"><span className="legend-swatch" style={{ background: style.fill }} /> {legendLabelForView(viewMode, currentTitle)}</div>}</>}
               <div className="legend-source"><span className="status-dot" /> {dataRows.length ? `${visualization.matchedRows}/${visualization.totalRows} rows matched` : sourceLabelForView(viewMode, districtScope, focusPlace)}</div>
             </div>}
-            {infographicConfig.showSource && <div className="infographic-source-overlay">{infographicConfig.source}</div>}
+            {infographicConfig.showSource && !isComposed && <div className="infographic-source-overlay">{attributionLine(datasetMeta, infographicConfig.source)}</div>}
             {isPoliticalLevel && !dataRows.length && <div className="map-data-callout"><div className="callout-icon"><Database size={15} /></div><div><strong>Political results not connected</strong><span>Bind an election dataset to color by winner, turnout, or margin.</span></div><button onClick={() => setActiveNav('data')} aria-label="Open data panel"><ArrowUpRight size={15} /></button></div>}
           </div>
 

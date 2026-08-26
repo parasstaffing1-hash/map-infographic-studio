@@ -25,6 +25,15 @@ const EnvironmentSchema = z.object({
   S3_REGION: z.string().default('us-east-1'),
   S3_ENDPOINT: z.string().url().optional(),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+
+  // Video rendering
+  VIDEO_QUEUE_NAME: z.string().default('map-studio-video-jobs'),
+  VIDEO_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
+  VIDEO_ENCODE_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(1_800_000).default(600_000),
+  FFMPEG_PATH: z.string().default('ffmpeg'),
+  PUBLIC_DOWNLOAD_BASE_URL: z.string().default('http://127.0.0.1:8787/downloads'),
+  VIDEO_JOBS_PER_KEY_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(60),
+  BATCH_JOBS_PER_KEY_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(120),
 });
 
 export type PlatformConfig = ReturnType<typeof loadConfig>;

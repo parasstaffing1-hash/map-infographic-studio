@@ -15,6 +15,11 @@ x-platform-environment: &platform-environment
   S3_FORCE_PATH_STYLE: "true"
   AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-mapstudio}
   AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-mapstudio-local-only}
+  # Shared by the API (enqueues) and the video worker (consumes) - these must match.
+  VIDEO_QUEUE_NAME: map-studio-video-jobs
+  PUBLIC_DOWNLOAD_BASE_URL: http://127.0.0.1:9000/map-studio-renders
+  VIDEO_JOBS_PER_KEY_PER_HOUR: "60"
+  BATCH_JOBS_PER_KEY_PER_HOUR: "120"
 
 services:
   web:
@@ -51,6 +56,26 @@ services:
         condition: service_started
     deploy:
       replicas: 2
+    restart: unless-stopped
+
+  video-worker:
+    build:
+      context: .
+      dockerfile: services/render-platform/Dockerfile
+    command: ["node", "services/render-platform/dist/video-worker.js"]
+    environment:
+      <<: *platform-environment
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      VIDEO_WORKER_CONCURRENCY: "2"
+      VIDEO_ENCODE_TIMEOUT_MS: "600000"
+    shm_size: 1gb
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      web:
+        condition: service_started
     restart: unless-stopped
 
   renderer:

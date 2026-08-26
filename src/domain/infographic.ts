@@ -365,12 +365,12 @@ function zeroStyle(config: InfographicConfig) {
   return { color: config.zeroMode === 'white' ? '#ffffff' : config.zeroColor, opacity: 0.82 };
 }
 
-function paletteColors(config: InfographicConfig) {
+export function paletteColors(config: Pick<InfographicConfig, 'customColors' | 'paletteId'>) {
   if (config.customColors.length >= 2) return config.customColors;
   return [...(PALETTES.find((palette) => palette.id === config.paletteId)?.colors ?? PALETTES[0].colors)];
 }
 
-function normalizedRegionKey(value: string) {
+export function normalizedRegionKey(value: string) {
   const aliases: Record<string, string> = {
     bangalore: 'bengaluru',
     bombay: 'mumbai',
@@ -390,7 +390,7 @@ function normalizedRegionKey(value: string) {
   return aliases[normalized] ?? normalized;
 }
 
-function parseNumericValue(value: string | number) {
+export function parseNumericValue(value: string | number) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   const text = String(value).trim();
   if (!text) return null;
@@ -492,7 +492,7 @@ function normalizedValue(value: number, minimum: number, maximum: number) {
   return maximum === minimum ? 0.5 : Math.max(0, Math.min(1, (value - minimum) / (maximum - minimum)));
 }
 
-function interpolatePalette(colors: string[], progress: number) {
+export function interpolatePalette(colors: string[], progress: number) {
   if (colors.length === 1) return colors[0];
   const scaled = Math.max(0, Math.min(1, progress)) * (colors.length - 1);
   const index = Math.min(Math.floor(scaled), colors.length - 2);
@@ -512,7 +512,7 @@ function hexToRgb(value: string) {
   return [Number.parseInt(hex.slice(0, 2), 16), Number.parseInt(hex.slice(2, 4), 16), Number.parseInt(hex.slice(4, 6), 16)];
 }
 
-function formatLegendNumber(value: number) {
+export function formatLegendNumber(value: number) {
   const absolute = Math.abs(value);
   if (absolute >= 10_000_000) return `${(value / 10_000_000).toFixed(1)}Cr`;
   if (absolute >= 100_000) return `${(value / 100_000).toFixed(1)}L`;
