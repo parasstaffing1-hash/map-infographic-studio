@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Cloud, Copy, Database, Download, FileSpreadsheet, Link2, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { CURATED_DATASETS, type CuratedDataset } from '../domain/curatedDatasets';
 import {
   applyColumnMapping,
   countMissingValues,
@@ -39,7 +40,7 @@ type Props = {
 const SAMPLE = 'Region,Value,Year\nDelhi,16879941,2021\nMaharashtra,124904071,2021\nTamil Nadu,77841267,2021';
 
 export function DataConnectionsPanel({ rows, features, years, currentYear, result, sources, datasetMeta, regionOverrides, onRowsChange, onYearChange, onMetaChange, onRegionOverride, onToast }: Props) {
-  const [tab, setTab] = useState<'paste' | 'file' | 'link'>('paste');
+  const [tab, setTab] = useState<'presets' | 'paste' | 'file' | 'link'>('presets');
   const [paste, setPaste] = useState('');
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,10 +140,57 @@ export function DataConnectionsPanel({ rows, features, years, currentYear, resul
       </div>
 
       <div className="chip-row" role="tablist" aria-label="Data source type">
+        <button role="tab" aria-selected={tab === 'presets'} className={`chip ${tab === 'presets' ? 'active' : ''}`} onClick={() => setTab('presets')}>Curated</button>
         <button role="tab" aria-selected={tab === 'paste'} className={`chip ${tab === 'paste' ? 'active' : ''}`} onClick={() => setTab('paste')}>Paste</button>
         <button role="tab" aria-selected={tab === 'file'} className={`chip ${tab === 'file' ? 'active' : ''}`} onClick={() => setTab('file')}>File</button>
         <button role="tab" aria-selected={tab === 'link'} className={`chip ${tab === 'link' ? 'active' : ''}`} onClick={() => setTab('link')}>Link</button>
       </div>
+
+      {tab === 'presets' && (
+        <div className="data-import-card">
+          <strong>Curated real-world datasets</strong>
+          <small>Verified demographic, economic, and climate stories ready for instant mapping.</small>
+          <div className="dataset-preset-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+            {CURATED_DATASETS.map((dataset) => (
+              <button
+                key={dataset.id}
+                type="button"
+                className="preset-story-card"
+                style={{
+                  textAlign: 'left',
+                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-color, #e2e8f0)',
+                  background: 'var(--card-bg, #ffffff)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '3px',
+                }}
+                onClick={() => {
+                  onRowsChange(dataset.rows, {
+                    origin: 'preset',
+                    ...dataset.meta,
+                    rowCount: dataset.rows.length,
+                    publisher: dataset.source,
+                    notes: dataset.description,
+                    synthetic: false,
+                  });
+                  onYearChange(undefined);
+                  onToast(`Loaded ${dataset.title} (${dataset.rows.length} rows)`);
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: '13px', color: 'var(--text-main, #1e293b)' }}>{dataset.title}</strong>
+                  <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{dataset.category}</span>
+                </div>
+                <small style={{ color: 'var(--text-muted, #64748b)', fontSize: '12px' }}>{dataset.description}</small>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Source: {dataset.source}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {tab === 'paste' && (
         <div className="data-import-card">

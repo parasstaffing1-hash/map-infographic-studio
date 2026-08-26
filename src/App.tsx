@@ -3,6 +3,7 @@ import { ArrowUpRight, BarChart3, Bookmark, Check, ChevronDown, CircleHelp, Comm
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { AnnotationLayer } from './components/AnnotationLayer';
 import { CompositionCanvas } from './components/CompositionCanvas';
+import { MapOverlays } from './components/MapOverlays';
 import { InfographicEditorPanel } from './components/InfographicEditorPanel';
 import { MapCanvas } from './components/MapCanvas';
 import { ProductionPanel } from './components/ProductionPanel';
@@ -11,7 +12,9 @@ import { sourceCatalog } from './domain/data';
 import { compositionById, compositionHasMap, DEFAULT_COMPOSITION_ID } from './domain/composition';
 import { applyRegionOverrides, attributionLine } from './domain/dataSources';
 import { createVisualization, dataYears, type Annotation, type DataRow, type InfographicConfig } from './domain/infographic';
-import { can, readSharedProjectFromLocation, type ProjectRole } from './domain/projects';
+import { can, readSharedProjectFromLocation, toProjectDocument, type ProjectRole } from './domain/projects';
+import type { ServerProject } from './domain/apiClient';
+import { migrateProjectDocument, type BrandKitSnapshot } from './domain/projectDocument';
 import { DEFAULT_VIDEO_SPEC, frameState, totalFrames, type VideoSpec } from './domain/videoTimeline';
 import { useStudioProject } from './store/useStudioProject';
 import { configForInfographicTemplate, infographicCategories, infographicTemplates, rowsForInfographicTemplate, searchInfographicTemplates, testGeneralInfographicTemplates, testMapInfographicTemplates, testVideoTemplates, type InfographicCategory, type InfographicTemplate } from './domain/infographicTemplates';
@@ -25,6 +28,7 @@ const ExportStudioPanel = lazy(() => import('./components/ExportStudioPanel').th
 const VideoStudioPanel = lazy(() => import('./components/VideoStudioPanel').then((module) => ({ default: module.VideoStudioPanel })));
 const ChartStudioPanel = lazy(() => import('./components/ChartStudioPanel').then((module) => ({ default: module.ChartStudioPanel })));
 const ProjectsPanel = lazy(() => import('./components/ProjectsPanel').then((module) => ({ default: module.ProjectsPanel })));
+const AccountPanel = lazy(() => import('./components/AccountPanel').then((module) => ({ default: module.AccountPanel })));
 
 const suggestions = [
   'Make a map of India',
@@ -48,6 +52,17 @@ const USA_LEVELS: ViewMode[] = ['usa-counties', 'usa-state-house', 'usa-congress
 const CHINA_LEVELS: ViewMode[] = ['china-prefectures', 'china-counties', 'china-npc'];
 /** Longest a single video frame may wait for the map before it is captured anyway. */
 const VIDEO_FRAME_SETTLE_MS = 1_200;
+
+/** Where a server renderer seeds the versioned project document. */
+const RENDER_DOCUMENT_KEY = 'map-studio-render-document';
+
+/**
+ * True when the page was opened by a renderer. Read once, synchronously, so the
+ * very first render already knows: the seeded document is then the only source
+ * of truth and the ordinary project hydrate/persist effects must stay out of it.
+ */
+const IS_RENDER_MODE = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('render') === '1';
 
 const PRODUCTION_VIEW_MODES: ViewMode[] = ['world', 'india', 'usa', 'china', ...INDIA_LEVELS, ...USA_LEVELS, ...CHINA_LEVELS];
 
@@ -138,7 +153,7 @@ function sourceLabelForView(viewMode: ViewMode, districtScope?: string, focusPla
 export default function App() {
   const {
     request, commandText, viewMode, editorMode, selectedIds, hiddenLayers, style, filters, saveState,
-    setCommandText, runCommand, setViewMode, setEditorMode, toggleLayer, setSelection, setStyle, removeFilter, undo, redo, markSaved,
+    setCommandText, runCommand, setViewMode, setEditorMode, toggleLayer, setSelection, setStyle, removeFilter, undo, redo, markSaved, hydrate,
   } = useMapStudio();
   const sharedPayload = useMemo(() => readSharedProjectFromLocation(window.location.search, window.location.hash), []);
   const role: ProjectRole = sharedPayload ? 'viewer' : 'owner';
@@ -161,6 +176,11 @@ export default function App() {
   // Bumped on every setFrame call so re-requesting the current frame still settles.
   const [frameTick, setFrameTick] = useState(0);
   const [isVideoRenderMode, setIsVideoRenderMode] = useState(false);
+  const [brandKitSnapshot, setBrandKitSnapshot] = useState<BrandKitSnapshot | undefined>();
+  // Below the mobile breakpoint the side panels become bottom sheets that are
+  // closed until a rail button or the Design toggle opens one.
+  const [mobileDrawer, setMobileDrawer] = useState<'left' | 'right' | null>(null);
+  const commandInputRef = useRef<HTMLInputElement>(null);
 
   // A shared link opens the project read-only; nothing is written back to storage.
   const dataRows = sharedPayload?.rows ?? project.rows;
@@ -171,6 +191,17 @@ export default function App() {
   const chartOverrides = sharedPayload?.chartOverrides ?? project.chartOverrides;
   const datasetMeta = sharedPayload?.datasetMeta ?? project.datasetMeta;
   const composition = compositionById(compositionId);
+  // In render mode the brand kit arrives embedded in the document; in the editor
+  // it comes from the workspace kit the project points at.
+  const activeBrandKit = studio.brandKits.find((kit) => kit.id === project.brandKitId);
+  const activeLogoDataUrl = brandKitSnapshot?.logoDataUrl ?? activeBrandKit?.logoDataUrl;
+  const activeBrandKitName = brandKitSnapshot?.name ?? activeBrandKit?.name ?? 'Brand';
+
+  // One versioned document, shared by the editor, the exporter and both renderers.
+  const renderDocument = useMemo(
+    () => ({ ...toProjectDocument(project, studio.brandKits), videoSpec }),
+    [project, studio.brandKits, videoSpec],
+  );
   const setDataRows = studio.setRows;
   const setAnnotations = studio.setAnnotations;
   const setCurrentYear = useCallback((year?: string) => studio.patch({ currentYear: year }), [studio]);
@@ -208,17 +239,67 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('render') !== '1') return;
     document.body.classList.add('render-mode');
-    const requestedView = params.get('viewMode') as ViewMode | null;
-    if (requestedView && PRODUCTION_VIEW_MODES.includes(requestedView)) setViewMode(requestedView);
-    const requestedComposition = params.get('composition');
-    if (requestedComposition) studio.patch({ compositionId: requestedComposition });
+
+    // The versioned render document is the contract. When the renderer seeded
+    // one, it wins over every URL hint and over anything cached in this browser.
+    let seeded = false;
+    try {
+      const raw = localStorage.getItem(RENDER_DOCUMENT_KEY) ?? localStorage.getItem('map-studio-infographic-v1');
+      if (raw) {
+        const incoming = migrateProjectDocument(JSON.parse(raw));
+        studio.patch({
+          name: incoming.name,
+          geography: incoming.geography,
+          presentation: incoming.presentation,
+          compositionId: incoming.compositionId,
+          chartOverrides: incoming.chartOverrides,
+          config: incoming.config,
+          rows: incoming.rows,
+          annotations: incoming.annotations,
+          currentYear: incoming.currentYear,
+          datasetMeta: incoming.datasetMeta,
+          regionOverrides: incoming.regionOverrides,
+          filters: incoming.filters,
+          videoSpec: incoming.videoSpec,
+        });
+        hydrate({
+          viewMode: incoming.geography.viewMode,
+          selectedIds: incoming.geography.selectedIds ?? [],
+          style: incoming.presentation.style,
+          hiddenLayers: incoming.presentation.hiddenLayers,
+          filters: incoming.filters,
+        });
+        setDistrictScope(incoming.geography.districtScope);
+        setFocusPlace(incoming.geography.focusPlace);
+        setVideoSpec({ ...DEFAULT_VIDEO_SPEC, ...incoming.videoSpec });
+        setBrandKitSnapshot(incoming.brandKit);
+        hydratedProjectRef.current = 'render';
+        seeded = true;
+      }
+    } catch (error) {
+      // A malformed document must not block the render; fall back to URL hints,
+      // but say so loudly - a silent fallback hides a broken render contract.
+      console.error('[map-studio] could not apply the seeded render document', error);
+    }
+
+    if (!seeded) {
+      const requestedView = params.get('viewMode') as ViewMode | null;
+      if (requestedView && PRODUCTION_VIEW_MODES.includes(requestedView)) setViewMode(requestedView);
+      const requestedComposition = params.get('composition');
+      if (requestedComposition) studio.patch({ compositionId: requestedComposition });
+      const requestedScope = params.get('districtScope');
+      if (requestedScope) setDistrictScope(requestedScope);
+    }
+
     if (params.get('mode') === 'video') {
       setIsVideoRenderMode(true);
-      try {
-        const stored = JSON.parse(localStorage.getItem('map-studio-video-spec') ?? 'null') as VideoSpec | null;
-        if (stored) setVideoSpec({ ...DEFAULT_VIDEO_SPEC, ...stored });
-      } catch {
-        // A malformed spec falls back to the defaults rather than blocking the render.
+      if (!seeded) {
+        try {
+          const stored = JSON.parse(localStorage.getItem('map-studio-video-spec') ?? 'null') as VideoSpec | null;
+          if (stored) setVideoSpec({ ...DEFAULT_VIDEO_SPEC, ...stored });
+        } catch {
+          // A malformed spec falls back to the defaults rather than blocking the render.
+        }
       }
     }
     setEditorMode('viewer');
@@ -250,6 +331,8 @@ export default function App() {
       ready: true,
       totalFrames: totalFrames(videoSpec),
       settled: false,
+      // Exposed so a renderer (or an operator) can confirm which spec was applied.
+      spec: videoSpec,
       setFrame: (frame: number) => {
         window.__mapStudioVideo!.settled = false;
         setPreviewFrame(Math.max(0, Math.min(frame, totalFrames(videoSpec) - 1)));
@@ -287,6 +370,81 @@ export default function App() {
     if (!videoFrame.camera || !mapInstance) return;
     mapInstance.jumpTo(videoFrame.camera);
   }, [mapInstance, videoFrame.camera]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement)?.tagName);
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        commandInputRef.current?.focus();
+        commandInputRef.current?.select();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e') {
+        event.preventDefault();
+        setActiveNav('export');
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !isInput) {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y' && !isInput) {
+        event.preventDefault();
+        redo();
+      } else if (event.key === 'Escape') {
+        setMobileDrawer(null);
+        setSelectedEntity(null);
+        setSelection([]);
+        if (isInput) (event.target as HTMLElement).blur();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [redo, setSelection, setSelectedEntity, undo]);
+
+  // ---- Geography persistence -------------------------------------------------
+  // The project is the source of truth across reloads. On open we push its saved
+  // geography into the interactive store; afterwards every navigation writes back.
+  const hydratedProjectRef = useRef<string | undefined>(undefined);
+  const apiClientRef = useRef<ReturnType<typeof import('./domain/apiClient').createApiClient> | null>(null);
+
+  useEffect(() => {
+    const source = sharedPayload ?? project;
+    const geography = sharedPayload?.geography ?? project?.geography;
+    const presentation = sharedPayload?.presentation ?? project?.presentation;
+    const key = sharedPayload ? 'shared' : project?.id;
+    if (!geography || !key || hydratedProjectRef.current === key) return;
+    hydratedProjectRef.current = key;
+    hydrate({
+      viewMode: geography.viewMode,
+      selectedIds: geography.selectedIds ?? [],
+      style: { ...style, ...presentation?.style },
+      // An empty saved map means the project predates layer capture: keep defaults.
+      hiddenLayers: presentation && Object.keys(presentation.hiddenLayers ?? {}).length ? presentation.hiddenLayers : hiddenLayers,
+      filters: (source as { filters?: FilterSpec[] }).filters ?? [],
+    });
+    setDistrictScope(geography.districtScope);
+    setFocusPlace(geography.focusPlace);
+    if (project.videoSpec) setVideoSpec((current) => ({ ...current, ...project.videoSpec }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, sharedPayload]);
+
+  useEffect(() => {
+    if (IS_RENDER_MODE || sharedPayload || hydratedProjectRef.current !== project.id) return;
+    studio.setGeography({ viewMode, districtScope, focusPlace, placeContext: request.parentGeography, selectedIds });
+  }, [districtScope, focusPlace, project.id, request.parentGeography, selectedIds, sharedPayload, studio, viewMode]);
+
+  useEffect(() => {
+    if (IS_RENDER_MODE || sharedPayload || hydratedProjectRef.current !== project.id) return;
+    studio.setPresentation({ style, hiddenLayers });
+  }, [hiddenLayers, project.id, sharedPayload, studio, style]);
+
+  useEffect(() => {
+    if (IS_RENDER_MODE || sharedPayload || hydratedProjectRef.current !== project.id) return;
+    studio.setFilters(filters);
+  }, [filters, project.id, sharedPayload, studio]);
+
+  useEffect(() => {
+    if (IS_RENDER_MODE || sharedPayload || hydratedProjectRef.current !== project.id) return;
+    studio.setVideoSpec(videoSpec);
+  }, [project.id, sharedPayload, studio, videoSpec]);
 
   const patchInfographicConfig = useCallback((patch: Partial<InfographicConfig>) => setInfographicConfig(patch), [setInfographicConfig]);
   const restoreProject = useCallback((stored: StoredProject) => {
@@ -434,7 +592,47 @@ export default function App() {
 
   const filteredSources = useMemo(() => sourceCatalog, []);
   const isComposed = compositionId !== DEFAULT_COMPOSITION_ID;
-  const hasMapBlock = compositionHasMap(composition);
+  const hasMapBlock = compositionHasMap(composition, infographicConfig.aspect);
+  // Editor affordances are off in render mode and in the viewer, so clean
+  // previews, exports and server-rendered frames all agree.
+  const editorChrome = editorMode === 'editor' && !isVideoRenderMode;
+  const legendItems = dataRows.length
+    ? visualization.legend.map((item) => ({ color: item.color, label: item.label }))
+    : [
+        { label: 'Selected region', selected: true },
+        ...(viewMode === 'jammu-kashmir'
+          ? [
+              { color: '#f4c542', label: 'Jammu and Kashmir districts' },
+              { color: '#7ce8eb', label: 'Ladakh official outline' },
+            ]
+          : [{ color: style.fill, label: legendLabelForView(viewMode, currentTitle) }]),
+      ];
+
+  // Map chrome belongs to the map block, never to the frame: this is what stops
+  // the legend and the callout landing on top of a chart in a composed layout.
+  const mapOverlays = (
+    <MapOverlays
+      editorChrome={editorChrome}
+      showLegend={infographicConfig.showLegend}
+      legendTitle={dataRows.length ? 'Legend' : isPoliticalLevel ? 'Boundary source' : 'Map context'}
+      legend={legendItems}
+      legendFootnote={dataRows.length ? `${visualization.matchedRows}/${visualization.totalRows} rows matched` : sourceLabelForView(viewMode, districtScope, focusPlace)}
+      scaleLabel={scaleLabelForView(viewMode, featureCount, districtLabel)}
+      source={infographicConfig.showSource ? attributionLine(datasetMeta, infographicConfig.source) : undefined}
+      callout={isPoliticalLevel && !dataRows.length
+        ? {
+            title: 'Political results not connected',
+            detail: 'Bind an election dataset to color by winner, turnout, or margin.',
+            actionLabel: 'Open data panel',
+            onAction: () => setActiveNav('data'),
+          }
+        : null}
+      annotations={annotations}
+      annotationsEditable={editorMode === 'editor'}
+      onAnnotationsChange={setAnnotations}
+    />
+  );
+
   const mapCanvas = (
     <MapCanvas
       viewMode={viewMode}
@@ -455,7 +653,7 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${mobileDrawer === 'left' ? 'panel-left-open' : ''} ${mobileDrawer === 'right' ? 'panel-right-open' : ''}`.replace(/\s+/g, ' ').trim()}>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark"><MapPinned size={18} strokeWidth={2.2} /></div>
@@ -470,24 +668,26 @@ export default function App() {
       </header>
 
       <div className="workspace">
+        {mobileDrawer && <button className="mobile-scrim" aria-label="Close panel" onClick={() => setMobileDrawer(null)} />}
         <aside className="left-rail">
-          <button className={`rail-button ${activeNav === 'search' ? 'active' : ''}`} onClick={() => setActiveNav('search')}><Search size={18} /><span>Search</span></button>
-          <button className={`rail-button ${activeNav === 'layers' ? 'active' : ''}`} onClick={() => setActiveNav('layers')}><Layers3 size={18} /><span>Layers</span></button>
-          <button className={`rail-button ${activeNav === 'data' ? 'active' : ''}`} onClick={() => setActiveNav('data')}><Database size={18} /><span>Data</span></button>
-          <button className={`rail-button ${activeNav === 'charts' ? 'active' : ''}`} onClick={() => setActiveNav('charts')}><BarChart3 size={18} /><span>Charts</span></button>
-          <button className={`rail-button ${activeNav === 'infographics' ? 'active' : ''}`} onClick={() => setActiveNav('infographics')}><Sparkles size={18} /><span>Infographics</span></button>
-          <button className={`rail-button ${activeNav === 'templates' ? 'active' : ''}`} onClick={() => setActiveNav('templates')}><LayoutTemplate size={18} /><span>Templates</span></button>
-          <button className={`rail-button ${activeNav === 'filters' ? 'active' : ''}`} onClick={() => setActiveNav('filters')}><Filter size={18} /><span>Filters</span>{filters.length > 0 && <em>{filters.length}</em>}</button>
-          <button className={`rail-button ${activeNav === 'projects' ? 'active' : ''}`} onClick={() => setActiveNav('projects')}><FolderOpen size={18} /><span>Projects</span></button>
-          <button className={`rail-button ${activeNav === 'saved' ? 'active' : ''}`} onClick={() => setActiveNav('saved')}><Bookmark size={18} /><span>Saved views</span></button>
-          <button className={`rail-button ${activeNav === 'video' ? 'active' : ''}`} onClick={() => setActiveNav('video')}><Video size={18} /><span>Video studio</span></button>
-          <button className={`rail-button ${activeNav === 'export' ? 'active' : ''}`} onClick={() => setActiveNav('export')}><Download size={18} /><span>Export</span></button>
-          <button className={`rail-button ${activeNav === 'production' ? 'active' : ''}`} onClick={() => setActiveNav('production')}><Factory size={18} /><span>Production</span></button>
+          <button className={`rail-button ${activeNav === 'search' ? 'active' : ''}`} onClick={() => { setActiveNav('search'); setMobileDrawer('left'); }}><Search size={18} /><span>Search</span></button>
+          <button className={`rail-button ${activeNav === 'layers' ? 'active' : ''}`} onClick={() => { setActiveNav('layers'); setMobileDrawer('left'); }}><Layers3 size={18} /><span>Layers</span></button>
+          <button className={`rail-button ${activeNav === 'data' ? 'active' : ''}`} onClick={() => { setActiveNav('data'); setMobileDrawer('left'); }}><Database size={18} /><span>Data</span></button>
+          <button className={`rail-button ${activeNav === 'charts' ? 'active' : ''}`} onClick={() => { setActiveNav('charts'); setMobileDrawer('left'); }}><BarChart3 size={18} /><span>Charts</span></button>
+          <button className={`rail-button ${activeNav === 'infographics' ? 'active' : ''}`} onClick={() => { setActiveNav('infographics'); setMobileDrawer('left'); }}><Sparkles size={18} /><span>Infographics</span></button>
+          <button className={`rail-button ${activeNav === 'templates' ? 'active' : ''}`} onClick={() => { setActiveNav('templates'); setMobileDrawer('left'); }}><LayoutTemplate size={18} /><span>Templates</span></button>
+          <button className={`rail-button ${activeNav === 'filters' ? 'active' : ''}`} onClick={() => { setActiveNav('filters'); setMobileDrawer('left'); }}><Filter size={18} /><span>Filters</span>{filters.length > 0 && <em>{filters.length}</em>}</button>
+          <button className={`rail-button ${activeNav === 'projects' ? 'active' : ''}`} onClick={() => { setActiveNav('projects'); setMobileDrawer('left'); }}><FolderOpen size={18} /><span>Projects</span></button>
+          <button className={`rail-button ${activeNav === 'saved' ? 'active' : ''}`} onClick={() => { setActiveNav('saved'); setMobileDrawer('left'); }}><Bookmark size={18} /><span>Saved views</span></button>
+          <button className={`rail-button ${activeNav === 'video' ? 'active' : ''}`} onClick={() => { setActiveNav('video'); setMobileDrawer('left'); }}><Video size={18} /><span>Video studio</span></button>
+          <button className={`rail-button ${activeNav === 'export' ? 'active' : ''}`} onClick={() => { setActiveNav('export'); setMobileDrawer('left'); }}><Download size={18} /><span>Export</span></button>
+          <button className={`rail-button ${activeNav === 'production' ? 'active' : ''}`} onClick={() => { setActiveNav('production'); setMobileDrawer('left'); }}><Factory size={18} /><span>Production</span></button>
           <div className="rail-spacer" />
           <button className="rail-button"><Settings2 size={18} /><span>Settings</span></button>
         </aside>
 
-        <aside className="side-panel left-panel">
+        <aside className="side-panel left-panel" id="left-panel" aria-label="Tools" data-open={mobileDrawer === 'left' ? 'true' : undefined}>
+          <button className="mobile-drawer-close" aria-label="Close panel" onClick={() => setMobileDrawer(null)}><X size={16} /></button>
           {activeNav === 'search' && <SearchPanel searchText={searchText} setSearchText={setSearchText} onRun={handleCommand} />}
           {activeNav === 'layers' && <LayersPanel viewMode={viewMode} placeName={request.place} districtScope={districtScope} scopeLabel={districtLabel} hiddenLayers={hiddenLayers} onView={handleTab} onToggle={toggleLayer} featureCount={visibleFeatureCount} />}
           <Suspense fallback={<div className="panel-content panel-loading">Loading module…</div>}>
@@ -496,9 +696,33 @@ export default function App() {
           {activeNav === 'infographics' && <InfographicsPanel onUse={handleInfographicTemplate} />}
           {activeNav === 'templates' && <TemplatesPanel onUse={handleTemplate} />}
           {activeNav === 'filters' && <FiltersPanel filters={filters} onRemove={removeFilter} />}
-          {activeNav === 'projects' && <ProjectsPanel projects={studio.projects} activeId={project.id} role={role} brandKits={studio.brandKits} activeBrandKitId={project.brandKitId} onOpen={studio.open} onCreate={studio.create} onRename={(name) => studio.patch({ name })} onDuplicate={studio.duplicate} onArchive={studio.setArchived} onSaveVersion={studio.saveVersion} onRestoreVersion={studio.restore} onBrandKit={studio.applyBrandKitById} onToast={setNotice} />}
+          {activeNav === 'projects' && <ProjectsPanel projects={studio.projects} activeId={project.id} role={role} brandKits={studio.brandKits} activeBrandKitId={project.brandKitId} onOpen={studio.open} onCreate={studio.create} onRename={(name) => studio.patch({ name })} onDuplicate={studio.duplicate} onArchive={studio.setArchived} onSaveVersion={studio.saveVersion} onRestoreVersion={studio.restore} onBrandKit={studio.applyBrandKitById} onToast={setNotice} accountSlot={
+            <AccountPanel
+              localDocuments={() => studio.projects.map((entry) => toProjectDocument(entry, studio.brandKits))}
+              onOpenServerProject={(serverProject: ServerProject) => {
+                if (!serverProject.document) return;
+                // A server project becomes the active local project; autosave then
+                // keeps the browser copy as an offline cache of the same document.
+                studio.adoptDocument(serverProject.document, serverProject.name);
+                hydratedProjectRef.current = undefined;
+                setNotice(`Opened ${serverProject.name} from your workspace`);
+              }}
+              onSaveCurrentToServer={async (workspaceId) => {
+                try {
+                  const api = apiClientRef.current;
+                  if (!api) return;
+                  await api.createProject(workspaceId, project.name, renderDocument);
+                  setNotice(`${project.name} saved to your workspace`);
+                } catch (error) {
+                  setNotice(error instanceof Error ? error.message : 'Could not save to the server');
+                }
+              }}
+              onClient={(api) => { apiClientRef.current = api; }}
+              onToast={setNotice}
+            />
+          } />}
           {activeNav === 'saved' && <SavedPanel title={infographicConfig.title || canvasTitle} rows={dataRows.length} annotations={annotations.length} onSave={() => { studio.saveVersion('Manual save'); markSaved(); }} onRestore={restoreProject} onToast={setNotice} />}
-          {activeNav === 'video' && <VideoStudioPanel spec={videoSpec} onSpec={(patch) => setVideoSpec((current) => ({ ...current, ...patch }))} rows={resolvedRows} config={infographicConfig} years={years} viewMode={viewMode} compositionId={compositionId} templateId={activeInfographic?.id ?? 'custom-map'} annotations={annotations} currentYear={currentYear} previewFrame={previewFrame} onPreviewFrame={(frame) => { setPreviewFrame(frame); setPixelVideoActive(true); }} onToast={setNotice} />}
+          {activeNav === 'video' && <VideoStudioPanel spec={videoSpec} document={renderDocument} onSpec={(patch) => setVideoSpec((current) => ({ ...current, ...patch }))} rows={resolvedRows} config={infographicConfig} years={years} viewMode={viewMode} compositionId={compositionId} templateId={activeInfographic?.id ?? 'custom-map'} annotations={annotations} currentYear={currentYear} previewFrame={previewFrame} onPreviewFrame={(frame) => { setPreviewFrame(frame); setPixelVideoActive(true); }} onToast={setNotice} />}
           {activeNav === 'export' && <ExportStudioPanel map={mapInstance} compositionId={compositionId} config={infographicConfig} chartOverrides={chartOverrides} legend={visualization.legend} annotations={annotations} rows={resolvedRows} currentYear={displayYear} datasetMeta={datasetMeta} logoDataUrl={studio.brandKits.find((kit) => kit.id === project.brandKitId)?.logoDataUrl} canExport={can(role, 'export')} fileStem={canvasTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map-infographic'} onToast={setNotice} />}
           </Suspense>
           {activeNav === 'production' && <ProductionPanel templateId={activeInfographic?.id ?? 'custom-map'} viewMode={viewMode} onToast={setNotice} />}
@@ -508,7 +732,7 @@ export default function App() {
           <div className="command-row">
             <div className="command-input-wrap">
               <Sparkles size={17} className="command-icon" />
-              <input value={commandText} onChange={(event) => setCommandText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && commandText.trim()) handleCommand(commandText.trim()); }} placeholder="Describe a map or edit the current view…" aria-label="AI map command" />
+              <input ref={commandInputRef} value={commandText} onChange={(event) => setCommandText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && commandText.trim()) handleCommand(commandText.trim()); }} placeholder="Describe a map or edit the current view…" aria-label="AI map command" />
               <kbd><Command size={12} /> K</kbd>
             </div>
             <button className="run-button" onClick={() => commandText.trim() && handleCommand(commandText.trim())}>Run</button>
@@ -523,8 +747,9 @@ export default function App() {
               <button className="small-button" onClick={undo} aria-label="Undo"><Undo2 size={15} /></button>
               <button className="small-button" onClick={redo} aria-label="Redo"><Redo2 size={15} /></button>
               <div className="segmented-control"><button className={editorMode === 'viewer' ? 'active' : ''} onClick={() => setEditorMode('viewer')}>Viewer</button><button className={editorMode === 'editor' ? 'active' : ''} onClick={() => setEditorMode('editor')}>Editor</button></div>
+              <button className="mobile-drawer-toggle" onClick={() => setMobileDrawer((current) => (current === 'right' ? null : 'right'))} aria-expanded={mobileDrawer === 'right'} aria-controls="right-panel"><SlidersHorizontal size={15} /> Design</button>
               <button className="outline-button" onClick={() => setNotice('Interactive share link ready to configure')}><Share2 size={15} /> Share</button>
-              <button className="outline-button pixel-video-action" onClick={() => setActiveNav('video')}><Video size={15} /> Pixel video</button>
+              <button className="outline-button pixel-video-action" onClick={() => { setActiveNav('video'); setMobileDrawer('left'); }}><Video size={15} /> Pixel video</button>
               <button className="primary-button" onClick={() => { markSaved(); setActiveNav('export'); }}><Download size={15} /> Export</button>
             </div>
           </div>
@@ -554,37 +779,52 @@ export default function App() {
               </>}
               <button className={viewMode === 'cities' ? 'active' : ''} onClick={() => handleTab('cities')}>Top cities</button>
               <button className={viewMode === 'world' ? 'active' : ''} onClick={() => handleTab('world')}>World</button>
-              <span className="map-tabs-divider" />
-              <span className="map-scale-label">{scaleLabelForView(viewMode, featureCount, districtLabel)}</span>
             </div>
             {isComposed
-              ? <CompositionCanvas composition={composition} config={infographicConfig} rows={resolvedRows} currentYear={displayYear} chartOverrides={chartOverrides} mapSlot={hasMapBlock ? mapCanvas : null} />
-              : mapCanvas}
+              ? (
+                <CompositionCanvas
+                  composition={composition}
+                  config={infographicConfig}
+                  rows={resolvedRows}
+                  currentYear={displayYear}
+                  chartOverrides={chartOverrides}
+                  aspect={infographicConfig.aspect}
+                  editorChrome={editorChrome}
+                  mapSlot={hasMapBlock ? mapCanvas : null}
+                  mapOverlays={hasMapBlock ? mapOverlays : null}
+                />
+              )
+              : (
+                <div className="map-stage">
+                  {mapCanvas}
+                  {mapOverlays}
+                </div>
+              )}
             {isEditorialStory && <>
               <div className="editorial-kicker"><span>{activeInfographic?.kicker ?? 'EDITORIAL MAP STORY'}</span><i /> <span>EDITABLE TEMPLATE</span></div>
               <div className="editorial-stat-card"><span>{activeInfographic?.statsHook.label}</span><strong>{activeInfographic?.statsHook.value}</strong>{activeInfographic?.statsHook.delta && <small>{activeInfographic.statsHook.delta}</small>}</div>
             </>}
             {isStatistaStory && <StatistaStoryOverlay rows={dataRows} config={infographicConfig} currentYear={currentYear} kicker={activeInfographic?.kicker ?? 'MAP DATA · RANKED COMPARISON'} statsHook={activeInfographic?.statsHook} />}
             {infographicConfig.showTitle && !isComposed && <div className="infographic-title-overlay"><h2>{infographicConfig.title || currentTitle}</h2>{infographicConfig.subtitle && <p>{infographicConfig.subtitle}</p>}{currentYear && <span>{currentYear}</span>}</div>}
-            <AnnotationLayer annotations={annotations} editable={editorMode === 'editor'} onChange={setAnnotations} />
             {pixelVideoActive && <div className="pixel-video-overlay" aria-hidden="true" />}
-            {infographicConfig.showLegend && (!isComposed || hasMapBlock) && <div className="map-legend">
-              <div className="legend-title">{dataRows.length ? 'Legend' : isPoliticalLevel ? 'Boundary source' : 'Map context'}</div>
-              {dataRows.length ? visualization.legend.map((item) => <div className="legend-row" key={`${item.color}-${item.label}`}><span className="legend-swatch" style={{ background: item.color }} /> {item.label}</div>) : <><div className="legend-row"><span className="legend-swatch selected" /> Selected region</div>
-              {viewMode === 'jammu-kashmir' ? <>
-                <div className="legend-row"><span className="legend-swatch" style={{ background: '#f4c542' }} /> Jammu and Kashmir districts</div>
-                <div className="legend-row"><span className="legend-swatch" style={{ background: '#7ce8eb' }} /> Ladakh official outline</div>
-              </> : <div className="legend-row"><span className="legend-swatch" style={{ background: style.fill }} /> {legendLabelForView(viewMode, currentTitle)}</div>}</>}
-              <div className="legend-source"><span className="status-dot" /> {dataRows.length ? `${visualization.matchedRows}/${visualization.totalRows} rows matched` : sourceLabelForView(viewMode, districtScope, focusPlace)}</div>
-            </div>}
+            {/* The logo is opt-in: it appears only when showLogo is set and a brand
+                kit actually supplies one, in the editor and in rendered frames alike. */}
+            {videoSpec.showLogo && activeLogoDataUrl && (
+              <img
+                className="composition-logo"
+                src={activeLogoDataUrl}
+                alt={`${activeBrandKitName} logo`}
+                style={{ position: 'absolute', right: '2.5%', top: '3%', maxWidth: '11%', maxHeight: '11%', objectFit: 'contain', pointerEvents: 'none', zIndex: 6 }}
+              />
+            )}
             {infographicConfig.showSource && !isComposed && <div className="infographic-source-overlay">{attributionLine(datasetMeta, infographicConfig.source)}</div>}
-            {isPoliticalLevel && !dataRows.length && <div className="map-data-callout"><div className="callout-icon"><Database size={15} /></div><div><strong>Political results not connected</strong><span>Bind an election dataset to color by winner, turnout, or margin.</span></div><button onClick={() => setActiveNav('data')} aria-label="Open data panel"><ArrowUpRight size={15} /></button></div>}
           </div>
 
           <div className="canvas-footer"><span><span className="status-dot" /> Auto-save enabled</span><span>·</span><span>Source-backed geometry</span><span>·</span><span>Attribution included</span></div>
         </main>
 
-        <aside className="side-panel right-panel">
+        <aside className="side-panel right-panel" id="right-panel" aria-label="Design" data-open={mobileDrawer === 'right' ? 'true' : undefined}>
+          <button className="mobile-drawer-close" aria-label="Close panel" onClick={() => setMobileDrawer(null)}><X size={16} /></button>
           {selectedEntity ? <SelectionPanel entity={selectedEntity} onClear={() => { setSelectedEntity(null); setSelection([]); }} /> : <InfographicEditorPanel editorMode={editorMode} style={style} hiddenLayers={hiddenLayers} config={infographicConfig} annotations={annotations} onStyle={setStyle} onToggle={toggleLayer} onConfig={patchInfographicConfig} onAnnotations={setAnnotations} />}
         </aside>
       </div>

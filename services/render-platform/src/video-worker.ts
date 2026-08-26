@@ -44,6 +44,7 @@ export async function processVideoJob(
 
     const { width, height } = VIDEO_DIMENSIONS[request.spec.preset];
     await patchVideoStatus(redis, jobId, { status: 'encoding' });
+    const audioTrack = request.spec.audioTrack;
     const encoded = await encodeFrames(frames, {
       format: request.spec.format,
       fps: request.spec.fps,
@@ -53,15 +54,25 @@ export async function processVideoJob(
       ffmpegPath: config.FFMPEG_PATH,
       timeoutMs: config.VIDEO_ENCODE_TIMEOUT_MS,
       signal: controller.signal,
+      audio: audioTrack && audioTrack.source !== 'none' ? {
+        audioData: audioTrack.audioData,
+        volume: audioTrack.volume,
+        fadeInSeconds: audioTrack.fadeInSeconds,
+        fadeOutSeconds: audioTrack.fadeOutSeconds,
+        durationSeconds: request.spec.durationSeconds,
+      } : undefined,
     });
 
     const key = outputKey(request.outputPrefix, jobId, request.spec.format);
     const uri = await store.put(key, encoded, contentTypeFor(request.spec.format));
+    // Only the storage key is recorded. The API mints a short-lived download URL
+    // when the status is read, so a link can never outlive its expiry and the
+    // bucket is never addressed directly by the browser.
     await patchVideoStatus(redis, jobId, {
       status: 'complete',
       framesRendered: total,
       outputUri: uri,
-      downloadUrl: `${config.PUBLIC_DOWNLOAD_BASE_URL.replace(/\/$/, '')}/${key}`,
+      outputKey: key,
     });
     await job.updateProgress(100);
   } catch (error) {

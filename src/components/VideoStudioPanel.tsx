@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Clapperboard, Download, Film, Pause, Play, RotateCcw, Server, SkipBack, StepForward, X } from 'lucide-react';
+import { Clapperboard, Download, Film, Headphones, Music, Pause, Play, RotateCcw, Server, SkipBack, Sparkles, StepForward, Upload, Volume2, VolumeX, X } from 'lucide-react';
 import {
   DEFAULT_VIDEO_SPEC,
   estimatedFileSizeMb,
@@ -10,7 +10,15 @@ import {
   videoDimensions,
   type VideoSpec,
 } from '../domain/videoTimeline';
+import {
+  COPYRIGHT_FREE_LIBRARY,
+  DEFAULT_AUDIO_TRACK,
+  getPresetTrackDataUri,
+  loadCustomAudioFile,
+  type AudioTrackSpec,
+} from '../domain/audioLibrary';
 import type { DataRow, InfographicConfig } from '../domain/infographic';
+import type { ProjectDocument } from '../domain/projectDocument';
 import type { ViewMode } from '../domain/types';
 
 type ServerJob = {
@@ -19,11 +27,14 @@ type ServerJob = {
   framesRendered: number;
   totalFrames: number;
   downloadUrl?: string;
+  downloadExpiresInSeconds?: number;
   error?: string;
 };
 
 type Props = {
   spec: VideoSpec;
+  /** The exact document the editor is showing; the renderer replays it verbatim. */
+  document: ProjectDocument;
   onSpec: (patch: Partial<VideoSpec>) => void;
   rows: DataRow[];
   config: InfographicConfig;
@@ -40,19 +51,80 @@ type Props = {
 
 const PRODUCTION_VIEWS: ViewMode[] = ['world', 'india', 'usa', 'china', 'india-districts', 'india-assembly', 'india-parliament', 'usa-counties', 'usa-state-house', 'usa-congress', 'china-prefectures', 'china-counties', 'china-npc'];
 
-export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, compositionId, templateId, annotations, currentYear, previewFrame, onPreviewFrame, onToast }: Props) {
+export function VideoStudioPanel({ spec, document, onSpec, rows, config, years, viewMode, compositionId, templateId, annotations, currentYear, previewFrame, onPreviewFrame, onToast }: Props) {
   const [playing, setPlaying] = useState(false);
   const [apiUrl, setApiUrl] = useState(import.meta.env.VITE_PRODUCTION_API_URL ?? 'http://127.0.0.1:8787');
   const [apiKey, setApiKey] = useState('');
   const [job, setJob] = useState<ServerJob | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [audioPreviewing, setAudioPreviewing] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const frameRef = useRef(previewFrame);
   const total = totalFrames(spec);
   const dimensions = videoDimensions(spec);
   const state = frameState(spec, previewFrame, rows, config, years);
+  const activeAudioTrack = spec.audioTrack ?? DEFAULT_AUDIO_TRACK;
 
   useEffect(() => { frameRef.current = previewFrame; }, [previewFrame]);
+
+  // Sync audio preview element with current track
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+    }
+    const audio = audioRef.current;
+    if (activeAudioTrack.source === 'none') {
+      audio.pause();
+      audio.src = '';
+      setAudioPreviewing(false);
+      return;
+    }
+    const src = activeAudioTrack.audioData || getPresetTrackDataUri(activeAudioTrack.id, Math.min(60, spec.durationSeconds));
+    audio.src = src;
+    audio.loop = activeAudioTrack.loop;
+    audio.volume = activeAudioTrack.volume;
+  }, [activeAudioTrack.id, activeAudioTrack.source, activeAudioTrack.audioData, activeAudioTrack.loop, activeAudioTrack.volume, spec.durationSeconds]);
+
+  // Sync audio playback with video play preview
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || activeAudioTrack.source === 'none') return;
+    if (playing) {
+      audio.currentTime = (previewFrame / spec.fps) % (audio.duration || spec.durationSeconds);
+      audio.play().catch(() => undefined);
+      setAudioPreviewing(true);
+    } else {
+      audio.pause();
+      setAudioPreviewing(false);
+    }
+  }, [playing, previewFrame, spec.fps, spec.durationSeconds, activeAudioTrack.source]);
+
+  const toggleAudioSample = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audioPreviewing) {
+      audio.pause();
+      setAudioPreviewing(false);
+    } else {
+      audio.currentTime = 0;
+      audio.play().catch(() => undefined);
+      setAudioPreviewing(true);
+    }
+  };
+
+  const handleAudioUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const customTrack = await loadCustomAudioFile(file);
+      onSpec({ audioTrack: customTrack });
+      onToast(`Loaded audio: ${file.name}`);
+    } catch {
+      onToast('Could not load audio file. Please use MP3 or WAV.');
+    }
+  };
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -101,6 +173,12 @@ export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, 
     if (!apiKey.trim()) { setError('Add an API key for the render service before submitting.'); return; }
     setSubmitting(true);
     try {
+      // Ensure audio data is resolved if preset is selected
+      const resolvedAudioTrack: AudioTrackSpec | undefined = activeAudioTrack.source !== 'none' ? {
+        ...activeAudioTrack,
+        audioData: activeAudioTrack.audioData || getPresetTrackDataUri(activeAudioTrack.id, Math.min(180, spec.durationSeconds)),
+      } : undefined;
+
       const response = await fetch(`${base()}/v1/video-jobs`, {
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
@@ -109,8 +187,8 @@ export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, 
           templateId: templateId.replace(/[^a-zA-Z0-9._:-]/g, '-') || 'custom-map',
           viewMode: PRODUCTION_VIEWS.includes(viewMode) ? viewMode : 'india',
           compositionId,
-          project: { rows, config, annotations, currentYear },
-          spec,
+          document: { ...document, videoSpec: { ...spec, audioTrack: resolvedAudioTrack } },
+          spec: { ...spec, audioTrack: resolvedAudioTrack },
           outputPrefix: 'videos',
         }),
       });
@@ -133,6 +211,7 @@ export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, 
   };
 
   const progress = job ? Math.round((job.framesRendered / Math.max(1, job.totalFrames)) * 100) : 0;
+  const currentTrackMeta = COPYRIGHT_FREE_LIBRARY.find((t) => t.id === activeAudioTrack.id);
 
   return (
     <div className="panel-content video-panel">
@@ -145,7 +224,7 @@ export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, 
 
       <div className="video-intro">
         <Clapperboard size={20} />
-        <div><strong>The whole composition is recorded</strong><span>Server renders capture the map, charts, titles and source together — not just the map canvas.</span></div>
+        <div><strong>Broadcast quality infographics with audio</strong><span>Multi-decade timeline races, camera tours, and copyright-free background music mixed directly with FFmpeg.</span></div>
       </div>
 
       <div className="video-section">
@@ -158,6 +237,131 @@ export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, 
         <button className="small-button" onClick={() => { setPlaying(false); onPreviewFrame(0); }} aria-label="Go to the beginning"><SkipBack size={15} /></button>
         <button className="video-play-button" onClick={() => setPlaying((value) => !value)}>{playing ? <Pause size={15} /> : <Play size={15} />}<span>{playing ? 'Pause preview' : 'Play preview'}</span></button>
         <button className="small-button" onClick={() => { setPlaying(false); onPreviewFrame(Math.min(total - 1, previewFrame + Math.round(spec.fps / 2))); }} aria-label="Step forward"><StepForward size={15} /></button>
+      </div>
+
+      {/* Background Music Section */}
+      <div className="video-section video-options">
+        <div className="section-title">
+          <span><Music size={13} /> Copyright-Free Music</span>
+          <span className="video-frame-count">100% Monetization Safe</span>
+        </div>
+
+        <label className="select-row"><span>Audio track</span>
+          <select
+            value={activeAudioTrack.source === 'none' ? 'none' : (activeAudioTrack.source === 'custom' ? 'custom' : activeAudioTrack.id)}
+            onChange={(event) => {
+              const val = event.target.value;
+              if (val === 'none') {
+                onSpec({ audioTrack: { id: 'none', name: 'No Music', source: 'none', volume: 0, fadeInSeconds: 0, fadeOutSeconds: 0, loop: false } });
+              } else if (val === 'custom') {
+                fileInputRef.current?.click();
+              } else {
+                const track = COPYRIGHT_FREE_LIBRARY.find((t) => t.id === val);
+                if (track) {
+                  onSpec({
+                    audioTrack: {
+                      id: track.id,
+                      name: track.name,
+                      source: 'preset',
+                      category: track.category,
+                      volume: activeAudioTrack.volume || 0.75,
+                      fadeInSeconds: activeAudioTrack.fadeInSeconds || 1.0,
+                      fadeOutSeconds: activeAudioTrack.fadeOutSeconds || 2.0,
+                      loop: true,
+                    },
+                  });
+                }
+              }
+            }}
+          >
+            <optgroup label="Copyright-Free Preset Library">
+              {COPYRIGHT_FREE_LIBRARY.map((track) => (
+                <option key={track.id} value={track.id}>{track.name} ({track.categoryLabel})</option>
+              ))}
+            </optgroup>
+            <optgroup label="Custom & Mute">
+              <option value="custom">Upload custom audio (.mp3, .wav)...</option>
+              <option value="none">No background music (Mute)</option>
+            </optgroup>
+          </select>
+        </label>
+
+        <input ref={fileInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={(e) => void handleAudioUpload(e)} />
+
+        {activeAudioTrack.source !== 'none' && (
+          <>
+            {currentTrackMeta && (
+              <p className="panel-hint" style={{ marginTop: '-4px', marginBottom: '8px' }}>
+                <Sparkles size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '4px' }} />
+                {currentTrackMeta.description} ({currentTrackMeta.bpm} BPM · {currentTrackMeta.mood})
+              </p>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+              <button
+                type="button"
+                className="outline-button small-button"
+                style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                onClick={toggleAudioSample}
+              >
+                {audioPreviewing ? <VolumeX size={14} /> : <Headphones size={14} />}
+                <span>{audioPreviewing ? 'Stop music preview' : 'Audition music track'}</span>
+              </button>
+              <button
+                type="button"
+                className="outline-button small-button"
+                title="Upload custom audio file"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload size={14} />
+              </button>
+            </div>
+
+            <label className="range-row">
+              <span>Music volume</span>
+              <output>{Math.round(activeAudioTrack.volume * 100)}%</output>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={Math.round(activeAudioTrack.volume * 100)}
+                onChange={(event) => onSpec({
+                  audioTrack: { ...activeAudioTrack, volume: Number(event.target.value) / 100 },
+                })}
+              />
+            </label>
+
+            <div className="toggle-row">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={activeAudioTrack.fadeInSeconds > 0}
+                  onChange={(e) => onSpec({
+                    audioTrack: { ...activeAudioTrack, fadeInSeconds: e.target.checked ? 1.0 : 0 },
+                  })}
+                /> Fade-in (1s)
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={activeAudioTrack.fadeOutSeconds > 0}
+                  onChange={(e) => onSpec({
+                    audioTrack: { ...activeAudioTrack, fadeOutSeconds: e.target.checked ? 2.0 : 0 },
+                  })}
+                /> Fade-out (2s)
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={activeAudioTrack.loop}
+                  onChange={(e) => onSpec({
+                    audioTrack: { ...activeAudioTrack, loop: e.target.checked },
+                  })}
+                /> Loop
+              </label>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="video-section video-options">
@@ -197,8 +401,8 @@ export function VideoStudioPanel({ spec, onSpec, rows, config, years, viewMode, 
             {Object.entries(VIDEO_FORMATS).map(([id, format]) => <option key={id} value={id}>{format.label}</option>)}
           </select>
         </label>
-        <label className="range-row"><span>Duration</span><output>{spec.durationSeconds}s</output>
-          <input type="range" min="3" max="60" value={spec.durationSeconds} onChange={(event) => onSpec({ durationSeconds: Number(event.target.value) })} />
+        <label className="range-row"><span>Duration</span><output>{formatTime(spec.durationSeconds)}</output>
+          <input type="range" min="3" max="300" value={spec.durationSeconds} onChange={(event) => onSpec({ durationSeconds: Number(event.target.value) })} />
         </label>
         <label className="select-row"><span>Frame rate</span>
           <select value={spec.fps} onChange={(event) => onSpec({ fps: Number(event.target.value) })}>

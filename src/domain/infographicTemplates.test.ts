@@ -10,7 +10,7 @@ const features: GeoFeature[] = [
 
 describe('integrated InfoGraphics templates', () => {
   it('exposes the source catalog across countries and topics', () => {
-    expect(infographicTemplates).toHaveLength(34);
+    expect(infographicTemplates).toHaveLength(35);
     expect(infographicTemplates.some((template) => template.geoScope === 'India')).toBe(true);
     expect(infographicTemplates.some((template) => template.viewMode === 'world')).toBe(true);
     expect(infographicCategories).toContain('Tech & AI');
@@ -36,6 +36,18 @@ describe('integrated InfoGraphics templates', () => {
     const template = infographicTemplates.find((item) => item.id === 'india_clean_energy_ranked_2024')!;
     expect(configForInfographicTemplate(template)).toMatchObject({ presentation: 'statista', aspect: '4:5', labelMode: 'value' });
     expect(rowsForInfographicTemplate(template)).toHaveLength(8);
+  });
+
+  it('ships a source-backed 15-country GDP video from 1960 through 2026', () => {
+    const template = infographicTemplates.find((item) => item.id === 'world_gdp_top_15_1960_2026')!;
+    const rows = rowsForInfographicTemplate(template);
+    const config = configForInfographicTemplate(template);
+    expect(template).toMatchObject({ defaultDurationSeconds: 300, viewMode: 'world', openPanel: 'video', dataQuality: 'verified', alwaysUseSampleRows: true, compositionId: 'world-gdp-race' });
+    expect(config).toMatchObject({ prefix: '$', suffix: 'T', decimals: 2, presentation: 'statista' });
+    expect(new Set(rows.map((row) => row.region)).size).toBe(15);
+    expect(new Set(rows.map((row) => row.year)).size).toBe(67);
+    expect(rows.some((row) => row.year === '2026' && row.raw.projected === true)).toBe(true);
+    expect(rows.some((row) => row.year === '1960' && row.region === 'Russia')).toBe(false);
   });
 
   it('filters templates by category and free text', () => {

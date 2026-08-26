@@ -62,10 +62,53 @@ export async function loadFeatures(viewMode: ViewMode): Promise<GeoFeatureCollec
     const unionTerritories = jammuKashmirUts.features.map((feature, index) => normalizeOfficialUtFeature(feature, index));
     return { ...raw, features: [...states, ...unionTerritories] };
   }
+  if (viewMode === 'world') {
+    const [response, officialIndiaResponse] = await Promise.all([
+      fetch(DATA_URLS.world),
+      fetch(OFFICIAL_INDIA_OUTLINE_URL),
+    ]);
+    if (!response.ok) throw new Error('Could not load world boundary source');
+    if (!officialIndiaResponse.ok) throw new Error('Could not load the official India boundary for the world map');
+    const raw = (await response.json()) as GeoFeatureCollection;
+    const officialIndia = (await officialIndiaResponse.json()) as GeoFeatureCollection;
+    const indiaFeature = officialIndia.features.find((feature) => {
+      const name = String(feature.properties.name ?? feature.properties.Country ?? '').trim().toLowerCase();
+      return name === 'india';
+    });
+    if (!indiaFeature) throw new Error('Official India boundary source did not contain an India feature');
+    const worldWithoutNaturalEarthIndia = raw.features
+      .filter((feature) => !isIndiaWorldFeature(feature))
+      .map((feature, index) => normalizeFeature(feature, viewMode, index));
+    return {
+      ...raw,
+      features: [...worldWithoutNaturalEarthIndia, normalizeOfficialWorldIndiaFeature(indiaFeature)],
+    };
+  }
   const response = await fetch(DATA_URLS[viewMode]);
   if (!response.ok) throw new Error(`Could not load ${viewMode} boundary source`);
   const raw = (await response.json()) as GeoFeatureCollection;
   return { ...raw, features: raw.features.map((feature, index) => normalizeFeature(feature, viewMode, index)) };
+}
+
+function isIndiaWorldFeature(feature: GeoFeature) {
+  const name = String(feature.properties.name ?? feature.properties.ADMIN ?? '').trim().toLowerCase();
+  return name === 'india' || String(feature.id ?? '').trim().toUpperCase() === 'IND';
+}
+
+function normalizeOfficialWorldIndiaFeature(feature: GeoFeature): GeoFeature {
+  return {
+    ...feature,
+    id: 'world-india-official',
+    properties: {
+      ...feature.properties,
+      __name: 'India',
+      __district: '',
+      __source: 'survey-of-india-official',
+      __viewMode: 'world',
+      __official: true,
+      __officialIndia: true,
+    },
+  };
 }
 
 function normalizeOfficialUtFeature(feature: GeoFeature, index: number): GeoFeature {

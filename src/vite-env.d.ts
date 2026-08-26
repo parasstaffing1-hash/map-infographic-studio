@@ -5,6 +5,8 @@ type MapStudioVideoBridge = {
   ready: boolean;
   totalFrames: number;
   settled: boolean;
+  /** The video spec actually applied to this page. */
+  spec?: unknown;
   setFrame: (frame: number) => void;
 };
 

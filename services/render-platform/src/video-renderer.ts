@@ -25,8 +25,11 @@ export function videoPageUrl(config: PlatformConfig, request: VideoRenderRequest
   const url = new URL(config.WEB_APP_URL);
   url.searchParams.set('render', '1');
   url.searchParams.set('mode', 'video');
-  url.searchParams.set('viewMode', request.viewMode);
-  url.searchParams.set('composition', request.compositionId);
+  // The document is authoritative; these only prime the page before it loads.
+  const geography = request.document.geography;
+  url.searchParams.set('viewMode', String(geography?.viewMode ?? request.viewMode));
+  url.searchParams.set('composition', request.document.compositionId ?? request.compositionId);
+  if (geography?.districtScope) url.searchParams.set('districtScope', geography.districtScope);
   return url.toString();
 }
 
@@ -52,12 +55,35 @@ export async function captureFrames(
   });
 
   const page = await context.newPage();
+  const doc = request.document ?? {
+    schemaVersion: 2,
+    name: request.templateId,
+    geography: { viewMode: request.viewMode, selectedIds: [] },
+    presentation: { style: { fill: '#2f83b5' }, hiddenLayers: {} },
+    compositionId: request.compositionId,
+    chartOverrides: {},
+    config: (request as unknown as { project?: { config?: unknown } })?.project?.config ?? {},
+    rows: (request as unknown as { project?: { rows?: unknown[] } })?.project?.rows ?? [],
+    annotations: (request as unknown as { project?: { annotations?: unknown[] } })?.project?.annotations ?? [],
+    currentYear: (request as unknown as { project?: { currentYear?: string } })?.project?.currentYear,
+    datasetMeta: { publisher: '', releaseDate: '', notes: '', synthetic: false },
+    regionOverrides: {},
+    filters: [],
+    videoSpec: request.spec,
+  };
+
   await page.addInitScript(
-    ([project, spec]) => {
-      localStorage.setItem('map-studio-infographic-v1', JSON.stringify(project));
+    ([document, spec]) => {
+      localStorage.setItem('map-studio-render-document', JSON.stringify(document));
       localStorage.setItem('map-studio-video-spec', JSON.stringify(spec));
+      localStorage.setItem('map-studio-infographic-v1', JSON.stringify({
+        rows: (document as { rows?: unknown[] })?.rows ?? [],
+        config: (document as { config?: unknown })?.config ?? {},
+        annotations: (document as { annotations?: unknown[] })?.annotations ?? [],
+        currentYear: (document as { currentYear?: string })?.currentYear,
+      }));
     },
-    [request.project, request.spec] as const,
+    [doc, request.spec] as const,
   );
 
   await page.goto(videoPageUrl(config, request), { waitUntil: 'domcontentloaded', timeout: config.RENDER_TIMEOUT_MS });

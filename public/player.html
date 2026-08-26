@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Map Studio · Video Showcase & Player</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-border: #1f293d;
+      --accent: #3b82f6;
+      --accent-hover: #60a5fa;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 18px 28px;
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .brand-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .brand-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .header-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      transition: all 0.15s ease;
+    }
+    .header-links a:hover {
+      background: var(--card-border);
+      color: #fff;
+    }
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      padding: 24px 28px;
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    @media (max-width: 1024px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .player-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .video-wrapper {
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+    }
+    video, img.gif-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .video-info {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+    .video-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .video-meta {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 12px;
+      background: #1e293b;
+      color: #93c5fd;
+      border: 1px solid #334155;
+    }
+    .badge.audio {
+      background: #3b0764;
+      color: #d8b4fe;
+      border-color: #581c87;
+    }
+    .video-desc {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .sidebar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+    }
+    .sidebar h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .playlist {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .playlist-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #1e293b55;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .playlist-item:hover {
+      background: #1e293b;
+      border-color: #334155;
+    }
+    .playlist-item.active {
+      background: #1e3a8a33;
+      border-color: var(--accent);
+    }
+    .item-thumb {
+      width: 48px;
+      height: 48px;
+      border-radius: 6px;
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .item-content {
+      flex: 1;
+      min-width: 0;
+    }
+    .item-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .item-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🗺️</div>
+      <div>
+        <div class="brand-title">Map Studio Infographic</div>
+        <div class="brand-subtitle">Real Data Video Showcase & Player</div>
+      </div>
+    </div>
+    <div class="header-links">
+      <a href="/" target="_blank">Open Full Map Studio Editor ↗</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="player-container">
+      <div class="video-wrapper">
+        <video id="main-video" controls autoplay loop playsinline>
+          <source id="video-source" src="/videos/01-world-gdp-with-soundtrack.mp4" type="video/mp4">
+          Your browser does not support video playback.
+        </video>
+        <img id="gif-preview" class="gif-preview" src="" style="display: none;" alt="GIF preview" />
+      </div>
+
+      <div class="video-info">
+        <div class="video-title" id="display-title">Top 15 Global Economies by GDP (1960–2026)</div>
+        <div class="video-meta">
+          <span class="badge" id="display-mode">Bar Chart Race</span>
+          <span class="badge" id="display-res">1920×1080 · 16:9</span>
+          <span class="badge" id="display-format">MP4 · H.264</span>
+          <span class="badge audio" id="display-audio">🎵 Deep Geopolitical Horizon (AAC 192k)</span>
+        </div>
+        <div class="video-desc" id="display-desc">
+          World Bank World Development Indicators (WDI) historical GDP data spanning 66 years with dynamic bar reordering and synchronized cinematic background music.
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <h3><span>Video Gallery</span><span style="font-size: 12px; color: var(--text-muted);">11 Videos</span></h3>
+      <div class="playlist" id="playlist"></div>
+    </div>
+  </main>
+
+  <script>
+    const videos = [
+      {
+        id: '01-soundtrack',
+        title: 'Top 15 Global GDP with Soundtrack (Audio + Video)',
+        src: '/videos/01-world-gdp-with-soundtrack.mp4',
+        mode: 'Bar Chart Race',
+        res: '1920×1080 · 16:9',
+        format: 'MP4',
+        audio: '🎵 Deep Geopolitical Horizon (AAC 192k)',
+        desc: 'World Bank World Development Indicators (WDI) historical GDP data spanning 66 years with dynamic bar reordering and synchronized cinematic soundtrack.',
+        icon: '🎵'
+      },
+      {
+        id: '01-world-gdp',
+        title: 'Top 15 Economies by GDP (1960–2026)',
+        src: '/videos/01-world-gdp-race.mp4',
+        mode: 'Bar Chart Race',
+        res: '1920×1080 · 16:9',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'World Bank World Development Indicators (WDI) historical GDP dataset with fluid ranked bar transitions.',
+        icon: '📊'
+      },
+      {
+        id: '02-clean-energy',
+        title: 'India State-wise Clean Energy Capacity (GW)',
+        src: '/videos/02-india-clean-energy.mp4',
+        mode: 'Year Choropleth',
+        res: '1080×1920 · 9:16 Vertical Reel',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'Ministry of New & Renewable Energy (MNRE) installed solar & wind power capacity formatted for Instagram Reels and Shorts.',
+        icon: '⚡'
+      },
+      {
+        id: '03-india-gsdp',
+        title: 'India State-wise GSDP Powerhouses (₹ Lakh Cr)',
+        src: '/videos/03-india-gsdp-powerhouses.mp4',
+        mode: 'Bar Chart Race',
+        res: '1920×1080 · 16:9',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'MOSPI gross state domestic product ranking top economic states in India.',
+        icon: '🇮🇳'
+      },
+      {
+        id: '04-co2',
+        title: 'Global CO2 Emissions per Capita',
+        src: '/videos/04-world-co2-emissions.mp4',
+        mode: 'Year Choropleth',
+        res: '1080×1080 · 1:1 Square',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'Global Carbon Project territorial emissions per person formatted for square social posts.',
+        icon: '🌍'
+      },
+      {
+        id: '05-usa-gdp',
+        title: 'USA State GDP Engine ($ Billion)',
+        src: '/videos/05-usa-state-gdp.mp4',
+        mode: 'Bar Chart Race',
+        res: '1920×1080 · 16:9',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'U.S. Bureau of Economic Analysis (BEA) state-by-state GDP engine.',
+        icon: '🇺🇸'
+      },
+      {
+        id: '06-megacities',
+        title: 'Rise of Global Megacities (10M+ Pop)',
+        src: '/videos/06-world-megacities.mp4',
+        mode: 'Animated Counter',
+        res: '1920×1080 · 16:9',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'UN World Urbanization Prospects tracking population surge across megacities.',
+        icon: '🏙️'
+      },
+      {
+        id: '07-literacy',
+        title: 'India State-wise Literacy Rates (%)',
+        src: '/videos/07-india-literacy-rates.mp4',
+        mode: 'Year Choropleth',
+        res: '1080×1920 · 9:16 Vertical Reel',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: 'National Statistical Office (NSO) survey and census data for Indian states.',
+        icon: '📚'
+      },
+      {
+        id: '08-ev-race',
+        title: 'Global Electric Vehicle Deliveries',
+        src: '/videos/08-ev-sales-race.webm',
+        mode: 'Bar Chart Race',
+        res: '1080×1080 · 1:1 Square',
+        format: 'WebM · VP9',
+        audio: 'Mute',
+        desc: 'EV global deliveries race testing the VP9 WebM codec in square format.',
+        icon: '🚗'
+      },
+      {
+        id: '09-uttarakhand',
+        title: 'Uttarakhand Himalayan Topography (Camera Tour)',
+        src: '/videos/09-uttarakhand-camera-tour.mp4',
+        mode: 'Camera Tour',
+        res: '1920×1080 · 16:9',
+        format: 'MP4',
+        audio: 'Mute',
+        desc: '3D camera pitch and orbit across Uttarakhand districts and Himalayan peaks.',
+        icon: '🏔️'
+      },
+      {
+        id: '10-gold',
+        title: 'Central Bank Sovereign Gold Reserves',
+        src: '/videos/10-gold-reserves-gif.gif',
+        mode: 'Year Choropleth',
+        res: '1920×1080 · 16:9',
+        format: 'GIF',
+        audio: 'None (GIF)',
+        desc: 'World Gold Council sovereign reserves animated GIF.',
+        icon: '🪙'
+      }
+    ];
+
+    const playlistEl = document.getElementById('playlist');
+    const videoEl = document.getElementById('main-video');
+    const sourceEl = document.getElementById('video-source');
+    const gifEl = document.getElementById('gif-preview');
+    const titleEl = document.getElementById('display-title');
+    const modeEl = document.getElementById('display-mode');
+    const resEl = document.getElementById('display-res');
+    const formatEl = document.getElementById('display-format');
+    const audioEl = document.getElementById('display-audio');
+    const descEl = document.getElementById('display-desc');
+
+    function selectVideo(index) {
+      const item = videos[index];
+      document.querySelectorAll('.playlist-item').forEach((el, i) => {
+        el.classList.toggle('active', i === index);
+      });
+
+      titleEl.textContent = item.title;
+      modeEl.textContent = item.mode;
+      resEl.textContent = item.res;
+      formatEl.textContent = item.format;
+      audioEl.textContent = item.audio;
+      audioEl.style.display = item.audio === 'Mute' ? 'none' : 'inline-block';
+      descEl.textContent = item.desc;
+
+      if (item.format === 'GIF') {
+        videoEl.style.display = 'none';
+        gifEl.style.display = 'block';
+        gifEl.src = item.src;
+      } else {
+        gifEl.style.display = 'none';
+        videoEl.style.display = 'block';
+        sourceEl.src = item.src;
+        videoEl.load();
+        videoEl.play().catch(() => {});
+      }
+    }
+
+    videos.forEach((item, index) => {
+      const el = document.createElement('div');
+      el.className = `playlist-item ${index === 0 ? 'active' : ''}`;
+      el.innerHTML = `
+        <div class="item-thumb">${item.icon}</div>
+        <div class="item-content">
+          <div class="item-title">${item.title}</div>
+          <div class="item-sub">${item.res} · ${item.mode}</div>
+        </div>
+      `;
+      el.onclick = () => selectVideo(index);
+      playlistEl.appendChild(el);
+    });
+  </script>
+</body>
+</html>

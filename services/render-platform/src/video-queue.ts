@@ -38,6 +38,8 @@ export async function readVideoStatus(redis: Redis, jobId: string): Promise<Vide
     createdAt: value.createdAt ?? '',
     updatedAt: value.updatedAt ?? '',
     outputUri: value.outputUri || undefined,
+    // The storage key is what the API needs to mint a fresh download URL.
+    outputKey: value.outputKey || undefined,
     downloadUrl: value.downloadUrl || undefined,
     error: value.error || undefined,
     attempts: Number(value.attempts ?? 0),

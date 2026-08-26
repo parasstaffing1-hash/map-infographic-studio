@@ -1,5 +1,6 @@
 import { buildChartModel, DEFAULT_CHART_SPEC, type ChartDatum } from './charts';
 import { formatDataValue, parseNumericValue, type DataRow, type InfographicConfig } from './infographic';
+import { DEFAULT_AUDIO_TRACK, type AudioTrackSpec } from './audioLibrary';
 
 export type VideoFormat = 'mp4' | 'webm' | 'gif';
 export type VideoPreset = 'landscape-1080' | 'vertical-1080' | 'square-1080' | 'landscape-4k';
@@ -22,6 +23,7 @@ export type VideoSpec = {
   /** Top N tracked in a bar-chart race. */
   raceSize: number;
   loop: boolean;
+  audioTrack?: AudioTrackSpec;
 };
 
 export const DEFAULT_VIDEO_SPEC: VideoSpec = {
@@ -38,6 +40,7 @@ export const DEFAULT_VIDEO_SPEC: VideoSpec = {
   showLogo: false,
   raceSize: 10,
   loop: false,
+  audioTrack: { ...DEFAULT_AUDIO_TRACK },
 };
 
 export const VIDEO_PRESETS: Record<VideoPreset, { label: string; width: number; height: number }> = {

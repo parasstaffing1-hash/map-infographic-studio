@@ -12,12 +12,24 @@ x-platform-environment: &platform-environment
   S3_BUCKET: map-studio-renders
   S3_REGION: us-east-1
   S3_ENDPOINT: http://minio:9000
+  # The endpoint a BROWSER can reach. Presigned download URLs are signed against
+  # this, so an internal container hostname never escapes to the client.
+  S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
   S3_FORCE_PATH_STYLE: "true"
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-mapstudio}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-mapstudio-local-only}
   AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-mapstudio}
   AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-mapstudio-local-only}
+  # Accounts, workspaces and projects.
+  DATABASE_URL: postgres://${POSTGRES_USER:-mapstudio}:${POSTGRES_PASSWORD:-mapstudio-local-only}@postgres:5432/${POSTGRES_DB:-mapstudio}
+  APP_BASE_URL: http://127.0.0.1:4174
+  APP_API_PUBLIC_URL: http://127.0.0.1:8787
+  DOWNLOAD_URL_TTL_SECONDS: "900"
   # Shared by the API (enqueues) and the video worker (consumes) - these must match.
   VIDEO_QUEUE_NAME: map-studio-video-jobs
-  PUBLIC_DOWNLOAD_BASE_URL: http://127.0.0.1:9000/map-studio-renders
+  # Retained for compatibility only. Download links are now short-lived
+  # presigned URLs minted per request; the bucket is never public.
+  PUBLIC_DOWNLOAD_BASE_URL: http://127.0.0.1:8787/downloads
   VIDEO_JOBS_PER_KEY_PER_HOUR: "60"
   BATCH_JOBS_PER_KEY_PER_HOUR: "120"
 
@@ -40,6 +52,8 @@ services:
       - "8787:8787"
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 
@@ -104,6 +118,25 @@ services:
       retries: 20
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mapstudio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mapstudio-local-only}
+      POSTGRES_DB: ${POSTGRES_DB:-mapstudio}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Host port is configurable: a locally installed PostgreSQL commonly owns
+      # 5432 and would otherwise shadow this container for host connections.
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mapstudio} -d ${POSTGRES_DB:-mapstudio}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address :9001
@@ -113,6 +146,7 @@ services:
     volumes:
       - minio-data:/data
     ports:
+      - "9000:9000"
       - "9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -135,3 +169,4 @@ services:
 volumes:
   redis-data:
   minio-data:
+  postgres-data:

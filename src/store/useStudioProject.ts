@@ -6,6 +6,7 @@ import type { Annotation, DataRow, InfographicConfig } from '../domain/infograph
 import {
   createProject,
   duplicateProject,
+  projectFromDocument,
   loadBrandKits,
   loadProjectStore,
   pushVersion,
@@ -15,7 +16,9 @@ import {
   type Project,
   type ProjectRole,
 } from '../domain/projects';
-import type { ViewMode } from '../domain/types';
+import type { MapGeography, MapPresentation, ProjectDocument } from '../domain/projectDocument';
+import type { VideoSpec } from '../domain/videoTimeline';
+import type { FilterSpec, ViewMode } from '../domain/types';
 
 const AUTOSAVE_DELAY_MS = 1_200;
 /** A version snapshot is kept at most this often, so autosave cannot flood history. */
@@ -35,8 +38,14 @@ export type StudioProjectApi = {
   setChartOverride: (blockId: string, patch: Partial<ChartSpec>) => void;
   resetChartOverrides: () => void;
   setRegionOverride: (from: string, to: string) => void;
+  setGeography: (patch: Partial<MapGeography>) => void;
+  setPresentation: (patch: Partial<MapPresentation>) => void;
+  setVideoSpec: (patch: Partial<VideoSpec>) => void;
+  setFilters: (filters: FilterSpec[]) => void;
   open: (projectId: string) => void;
   create: (name: string) => void;
+  /** Adopts a document fetched from the server as a new active project. */
+  adoptDocument: (document: ProjectDocument, name?: string) => void;
   duplicate: () => void;
   setArchived: (projectId: string, archived: boolean) => void;
   saveVersion: (label: string) => void;
@@ -83,8 +92,24 @@ export function useStudioProject(role: ProjectRole = 'owner', seed?: Partial<Pro
     return () => window.clearTimeout(timer);
   }, [projects, project?.id, role, storage]);
 
+  /**
+   * Applies a mutation to the active project. A mutator that returns the project
+   * unchanged is a no-op: without this, high-frequency writes such as map
+   * navigation would allocate a new object every render and loop forever.
+   */
   const mutate = useCallback((mutator: (current: Project) => Project) => {
-    setProjects((current) => current.map((entry) => (entry.id === (activeId || current[0]?.id) ? touch(mutator(entry)) : entry)));
+    setProjects((current) => {
+      const targetId = activeId || current[0]?.id;
+      let changed = false;
+      const next = current.map((entry) => {
+        if (entry.id !== targetId) return entry;
+        const mutated = mutator(entry);
+        if (mutated === entry) return entry;
+        changed = true;
+        return touch(mutated);
+      });
+      return changed ? next : current;
+    });
   }, [activeId]);
 
   const patch = useCallback((change: Partial<Project>) => mutate((current) => ({ ...current, ...change })), [mutate]);
@@ -119,10 +144,53 @@ export function useStudioProject(role: ProjectRole = 'owner', seed?: Partial<Pro
     mutate((current) => ({ ...current, regionOverrides: { ...current.regionOverrides, [from]: to } }));
   }, [mutate]);
 
+  /**
+   * Geography writes are frequent (every map navigation), so they skip the
+   * version snapshot and only touch the fields that actually changed.
+   */
+  const setGeography = useCallback((change: Partial<MapGeography>) => {
+    mutate((current) => {
+      const next = { ...current.geography, ...change };
+      const unchanged = next.viewMode === current.geography.viewMode
+        && next.districtScope === current.geography.districtScope
+        && next.focusPlace === current.geography.focusPlace
+        && next.placeContext === current.geography.placeContext
+        && sameIds(next.selectedIds, current.geography.selectedIds);
+      return unchanged ? current : { ...current, geography: next };
+    });
+  }, [mutate]);
+
+  const setPresentation = useCallback((change: Partial<MapPresentation>) => {
+    mutate((current) => {
+      const next: MapPresentation = {
+        style: { ...current.presentation.style, ...change.style },
+        hiddenLayers: change.hiddenLayers ?? current.presentation.hiddenLayers,
+      };
+      return sameJson(next, current.presentation) ? current : { ...current, presentation: next };
+    });
+  }, [mutate]);
+
+  const setVideoSpec = useCallback((change: Partial<VideoSpec>) => {
+    mutate((current) => {
+      const next = { ...current.videoSpec, ...change };
+      return sameJson(next, current.videoSpec) ? current : { ...current, videoSpec: next };
+    });
+  }, [mutate]);
+
+  const setFilters = useCallback((filters: FilterSpec[]) => {
+    mutate((current) => (sameJson(filters, current.filters) ? current : { ...current, filters }));
+  }, [mutate]);
+
   const open = useCallback((projectId: string) => setActiveId(projectId), []);
 
   const create = useCallback((name: string) => {
     const next = createProject(name);
+    setProjects((current) => [next, ...current]);
+    setActiveId(next.id);
+  }, []);
+
+  const adoptDocument = useCallback((document: ProjectDocument, name?: string) => {
+    const next = projectFromDocument(document, name ? { name } : {});
     setProjects((current) => [next, ...current]);
     setActiveId(next.id);
   }, []);
@@ -165,8 +233,13 @@ export function useStudioProject(role: ProjectRole = 'owner', seed?: Partial<Pro
     setChartOverride,
     resetChartOverrides,
     setRegionOverride,
+    setGeography,
+    setPresentation,
+    setVideoSpec,
+    setFilters,
     open,
     create,
+    adoptDocument,
     duplicate,
     setArchived,
     saveVersion,
@@ -175,10 +248,19 @@ export function useStudioProject(role: ProjectRole = 'owner', seed?: Partial<Pro
   };
 }
 
+/** Cheap structural comparison for the small settings objects written on navigation. */
+function sameJson(first: unknown, second: unknown) {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function sameIds(first: string[], second: string[]) {
+  return first.length === second.length && first.every((value, index) => value === second[index]);
+}
+
 function touch(project: Project): Project {
   return { ...project, updatedAt: new Date().toISOString() };
 }
 
 export function projectViewMode(project: Project): ViewMode {
-  return project.viewMode;
+  return project.geography.viewMode;
 }

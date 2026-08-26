@@ -1,12 +1,21 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 
 export type EncodeFormat = 'mp4' | 'webm' | 'gif';
+
+export type AudioEncodeOptions = {
+  audioPath?: string;
+  audioData?: string; // base64 / data:audio/... URL
+  volume?: number; // 0.0 - 1.0 (default 0.75)
+  fadeInSeconds?: number; // default 1.0
+  fadeOutSeconds?: number; // default 2.0
+  durationSeconds?: number; // default 12
+};
 
 export type EncodeOptions = {
   format: EncodeFormat;
@@ -19,6 +28,7 @@ export type EncodeOptions = {
   ffmpegPath: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  audio?: AudioEncodeOptions;
 };
 
 /**
@@ -29,6 +39,11 @@ export function encoderArguments(options: EncodeOptions, outputPath: string): st
   const scale = `scale=${evenNumber(options.width)}:${evenNumber(options.height)}:flags=lanczos`;
   const input = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', String(options.fps), '-i', 'pipe:0'];
 
+  const hasAudio = options.audio?.audioPath && options.format !== 'gif';
+  if (hasAudio) {
+    input.push('-stream_loop', '-1', '-i', options.audio!.audioPath!);
+  }
+
   if (options.format === 'gif') {
     return [
       ...input,
@@ -38,7 +53,30 @@ export function encoderArguments(options: EncodeOptions, outputPath: string): st
     ];
   }
 
+  const volume = options.audio?.volume ?? 0.75;
+  const fadeIn = Math.max(0, options.audio?.fadeInSeconds ?? 1.0);
+  const duration = options.audio?.durationSeconds ?? 12;
+  const fadeOut = Math.max(0, options.audio?.fadeOutSeconds ?? 2.0);
+  const fadeOutStart = Math.max(0, duration - fadeOut);
+  const audioFilter = `volume=${volume.toFixed(2)},afade=t=in:st=0:d=${fadeIn.toFixed(1)},afade=t=out:st=${fadeOutStart.toFixed(1)}:d=${fadeOut.toFixed(1)}`;
+
   if (options.format === 'webm') {
+    if (hasAudio) {
+      return [
+        ...input,
+        '-c:v', 'libvpx-vp9',
+        '-b:v', '0',
+        '-crf', String(options.quality ?? 32),
+        '-row-mt', '1',
+        '-pix_fmt', 'yuv420p',
+        '-vf', scale,
+        '-c:a', 'libopus',
+        '-b:a', '128k',
+        '-af', audioFilter,
+        '-shortest',
+        outputPath,
+      ];
+    }
     return [
       ...input,
       '-c:v', 'libvpx-vp9',
@@ -47,6 +85,23 @@ export function encoderArguments(options: EncodeOptions, outputPath: string): st
       '-row-mt', '1',
       '-pix_fmt', 'yuv420p',
       '-vf', scale,
+      outputPath,
+    ];
+  }
+
+  if (hasAudio) {
+    return [
+      ...input,
+      '-c:v', 'libx264',
+      '-preset', 'medium',
+      '-crf', String(options.quality ?? 21),
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-vf', scale,
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-af', audioFilter,
+      '-shortest',
       outputPath,
     ];
   }
@@ -83,7 +138,26 @@ export async function encodeFrames(frames: FrameSource, options: EncodeOptions):
   const directory = await mkdtemp(join(tmpdir(), 'map-studio-video-'));
   const outputPath = join(directory, `render.${options.format}`);
   try {
-    const args = encoderArguments(options, outputPath);
+    let resolvedOptions = { ...options };
+
+    // If audio data URI or base64 is provided without an explicit audio path, write to temp file
+    if (options.audio?.audioData && !options.audio.audioPath && options.format !== 'gif') {
+      const match = options.audio.audioData.match(/^data:audio\/([a-zA-Z0-9]+);base64,(.+)$/);
+      const ext = match?.[1] ?? 'wav';
+      const base64Content = match?.[2] ?? options.audio.audioData.replace(/^data:[^;]+;base64,/, '');
+      const audioBuffer = Buffer.from(base64Content, 'base64');
+      const tempAudioPath = join(directory, `audio_track.${ext === 'mpeg' ? 'mp3' : ext}`);
+      await writeFile(tempAudioPath, audioBuffer);
+      resolvedOptions = {
+        ...options,
+        audio: {
+          ...options.audio,
+          audioPath: tempAudioPath,
+        },
+      };
+    }
+
+    const args = encoderArguments(resolvedOptions, outputPath);
     const child = spawn(options.ffmpegPath, args, { stdio: ['pipe', 'ignore', 'pipe'], shell: false });
     const stderrChunks: Buffer[] = [];
     child.stderr?.on('data', (chunk: Buffer) => {

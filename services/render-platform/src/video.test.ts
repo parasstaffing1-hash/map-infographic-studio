@@ -17,7 +17,21 @@ const validRequest = {
   templateId: 'india-population',
   viewMode: 'india',
   compositionId: 'map-ranked',
-  project: { rows: [], config: {}, annotations: [] },
+  document: {
+    schemaVersion: 2,
+    name: 'Test story',
+    geography: { viewMode: 'india', selectedIds: [] },
+    presentation: { style: {}, hiddenLayers: {} },
+    compositionId: 'map-ranked',
+    chartOverrides: {},
+    config: {},
+    rows: [],
+    annotations: [],
+    datasetMeta: {},
+    regionOverrides: {},
+    filters: [],
+    videoSpec: {},
+  },
   spec: {},
 };
 
@@ -117,5 +131,53 @@ describe('probeFfmpeg', () => {
     const result = await probeFfmpeg('definitely-not-a-real-ffmpeg-binary');
     expect(result.available).toBe(false);
     expect(result.error).toBeTruthy();
+  });
+});
+
+describe('the render contract carries the whole editor state', () => {
+  const customised = {
+    ...validRequest,
+    document: {
+      ...validRequest.document,
+      geography: { viewMode: 'usa-counties', districtScope: '06', focusPlace: 'California', selectedIds: ['x'] },
+      presentation: { style: { fill: '#aa3366' }, hiddenLayers: { roads: true } },
+      chartOverrides: { ranked: { kind: 'bar-horizontal', limit: 4 } },
+      config: { title: 'Custom title', source: 'Source: custom', customColors: ['#111111', '#222222'] },
+      datasetMeta: { publisher: 'ACME Stats', synthetic: true },
+      annotations: [{ id: 'a1', type: 'text', text: 'note', x: 10, y: 10, color: '#fff', size: 12 }],
+      filters: [{ id: 'f1', label: 'Margin', field: 'margin', operator: '<', value: '5', active: true }],
+      brandKit: { id: 'k', name: 'Verify', colors: ['#eef8ff'], fontFamily: 'Inter', sourcePrefix: 'Source:', logoDataUrl: 'data:image/png;base64,AAAA' },
+      videoSpec: { showLogo: true, durationSeconds: 5, fps: 10 },
+    },
+  };
+
+  it('accepts chart overrides, brand kit, annotations, filters and attribution', () => {
+    const parsed = VideoRenderRequestSchema.parse(customised);
+    expect(parsed.document.chartOverrides.ranked).toMatchObject({ kind: 'bar-horizontal', limit: 4 });
+    expect(parsed.document.brandKit?.logoDataUrl).toBe('data:image/png;base64,AAAA');
+    expect(parsed.document.annotations).toHaveLength(1);
+    expect(parsed.document.filters).toHaveLength(1);
+    expect(parsed.document.datasetMeta).toMatchObject({ publisher: 'ACME Stats', synthetic: true });
+  });
+
+  it('carries the geography a renderer must restore, not just a country', () => {
+    const parsed = VideoRenderRequestSchema.parse(customised);
+    expect(parsed.document.geography).toMatchObject({ viewMode: 'usa-counties', districtScope: '06', focusPlace: 'California' });
+  });
+
+  it('carries the map style and hidden layers', () => {
+    const parsed = VideoRenderRequestSchema.parse(customised);
+    expect(parsed.document.presentation.style).toMatchObject({ fill: '#aa3366' });
+    expect(parsed.document.presentation.hiddenLayers).toEqual({ roads: true });
+  });
+
+  it('keeps showLogo in the spec so the logo is opt-in', () => {
+    expect(VideoSpecSchema.parse({}).showLogo).toBe(false);
+    expect(VideoSpecSchema.parse({ showLogo: true }).showLogo).toBe(true);
+  });
+
+  it('refuses a request that still sends the old project field', () => {
+    const { document: _document, ...withoutDocument } = customised;
+    expect(() => VideoRenderRequestSchema.parse({ ...withoutDocument, project: { rows: [], config: {}, annotations: [] } })).toThrow();
   });
 });

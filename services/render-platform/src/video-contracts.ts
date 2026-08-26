@@ -1,16 +1,31 @@
 import { z } from 'zod';
-import { StoredProjectSchema, ViewModeSchema } from './contracts.js';
+import { ViewModeSchema } from './contracts.js';
+import { ProjectDocumentSchema } from './project-document.js';
 
 export const VideoFormatSchema = z.enum(['mp4', 'webm', 'gif']);
 export const VideoPresetSchema = z.enum(['landscape-1080', 'vertical-1080', 'square-1080', 'landscape-4k']);
 export const VideoModeSchema = z.enum(['year-choropleth', 'bar-race', 'camera-tour', 'counter']);
 export const TransitionSchema = z.enum(['none', 'fade', 'wipe']);
 
+export const AudioCategorySchema = z.enum(['cinematic', 'stats-race', 'historical', 'lofi', 'minimal']);
+
+export const AudioTrackSpecSchema = z.object({
+  id: z.string().min(1).max(120),
+  name: z.string().max(160),
+  source: z.enum(['preset', 'custom', 'none']).default('preset'),
+  category: AudioCategorySchema.optional(),
+  audioData: z.string().optional(),
+  volume: z.number().min(0).max(1).default(0.75),
+  fadeInSeconds: z.number().min(0).max(30).default(1.0),
+  fadeOutSeconds: z.number().min(0).max(30).default(2.0),
+  loop: z.boolean().default(true),
+});
+
 export const VideoSpecSchema = z.object({
   mode: VideoModeSchema.default('year-choropleth'),
   preset: VideoPresetSchema.default('landscape-1080'),
   format: VideoFormatSchema.default('mp4'),
-  durationSeconds: z.number().min(1).max(180).default(12),
+  durationSeconds: z.number().min(1).max(300).default(12),
   fps: z.number().int().min(1).max(60).default(30),
   introSeconds: z.number().min(0).max(20).default(1.5),
   outroSeconds: z.number().min(0).max(20).default(1.5),
@@ -20,14 +35,25 @@ export const VideoSpecSchema = z.object({
   showLogo: z.boolean().default(false),
   raceSize: z.number().int().min(1).max(30).default(10),
   loop: z.boolean().default(false),
+  audioTrack: AudioTrackSpecSchema.optional(),
 }).strict();
 
+/**
+ * The full render request. `document` is the single versioned project schema the
+ * editor, the still renderer and the video renderer all share, so a rendered
+ * frame carries the same composition, chart overrides, brand kit, annotations,
+ * filters and attribution the author sees on screen.
+ *
+ * `viewMode` and `compositionId` stay at the top level because the renderer needs
+ * them to build the page URL before the document is loaded; when present in the
+ * document they must agree, and the document wins.
+ */
 export const VideoRenderRequestSchema = z.object({
   idempotencyKey: z.string().min(8).max(200),
   templateId: z.string().min(1).max(160).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/),
   viewMode: ViewModeSchema,
   compositionId: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/).default('map-only'),
-  project: StoredProjectSchema,
+  document: ProjectDocumentSchema,
   spec: VideoSpecSchema,
   outputPrefix: z.string().max(240).regex(/^[a-zA-Z0-9/_-]*$/).default('videos'),
 }).strict();
@@ -49,6 +75,8 @@ export type VideoJobStatus = {
   createdAt: string;
   updatedAt: string;
   outputUri?: string;
+  /** Storage key of the finished file. The download URL is minted on read. */
+  outputKey?: string;
   downloadUrl?: string;
   error?: string;
   attempts: number;

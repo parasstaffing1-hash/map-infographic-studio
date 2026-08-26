@@ -2,7 +2,18 @@ import type { ChartSpec } from './charts';
 import { DEFAULT_COMPOSITION_ID } from './composition';
 import { EMPTY_DATASET_META, type DatasetMeta, type RegionOverrides } from './dataSources';
 import { DEFAULT_INFOGRAPHIC_CONFIG, type Annotation, type DataRow, type InfographicConfig } from './infographic';
-import type { ViewMode } from './types';
+import {
+  DEFAULT_GEOGRAPHY,
+  DEFAULT_MAP_STYLE,
+  PROJECT_SCHEMA_VERSION,
+  isViewMode,
+  migrateProjectDocument,
+  type MapGeography,
+  type MapPresentation,
+  type ProjectDocument,
+} from './projectDocument';
+import { DEFAULT_VIDEO_SPEC, type VideoSpec } from './videoTimeline';
+import type { FilterSpec, ViewMode } from './types';
 
 export const PROJECT_STORAGE_KEY = 'map-studio-projects-v1';
 /** The single-project key used before projects existed. Migrated on first load. */
@@ -16,6 +27,12 @@ export type ProjectVersion = {
   rows: DataRow[];
   config: InfographicConfig;
   annotations: Annotation[];
+  /** Geography is snapshotted too, so restoring a version restores the map view. */
+  geography?: MapGeography;
+  presentation?: MapPresentation;
+  compositionId?: string;
+  chartOverrides?: Record<string, Partial<ChartSpec>>;
+  currentYear?: string;
 };
 
 export type Project = {
@@ -24,8 +41,12 @@ export type Project = {
   createdAt: string;
   updatedAt: string;
   archived: boolean;
-  viewMode: ViewMode;
-  districtScope?: string;
+  /** Where the map was pointed. Restored verbatim on reload and on reopen. */
+  geography: MapGeography;
+  /** Map paint state, so a reopened project looks the way it was left. */
+  presentation: MapPresentation;
+  filters: FilterSpec[];
+  videoSpec: VideoSpec;
   compositionId: string;
   chartOverrides: Record<string, Partial<ChartSpec>>;
   config: InfographicConfig;
@@ -64,7 +85,10 @@ export function createProject(name = 'Untitled project', patch: Partial<Project>
     createdAt: now,
     updatedAt: now,
     archived: false,
-    viewMode: 'india',
+    geography: { ...DEFAULT_GEOGRAPHY },
+    presentation: { style: { ...DEFAULT_MAP_STYLE }, hiddenLayers: {} },
+    filters: [],
+    videoSpec: { ...DEFAULT_VIDEO_SPEC },
     compositionId: DEFAULT_COMPOSITION_ID,
     chartOverrides: {},
     config: { ...DEFAULT_INFOGRAPHIC_CONFIG },
@@ -91,6 +115,11 @@ export function pushVersion(project: Project, label = 'Autosave'): Project {
     rows: project.rows,
     config: project.config,
     annotations: project.annotations,
+    geography: project.geography,
+    presentation: project.presentation,
+    compositionId: project.compositionId,
+    chartOverrides: project.chartOverrides,
+    currentYear: project.currentYear,
   };
   return { ...project, updatedAt: version.savedAt, versions: [version, ...project.versions].slice(0, MAX_VERSIONS) };
 }
@@ -100,7 +129,19 @@ export function restoreVersion(project: Project, versionId: string): Project {
   if (!version) return project;
   // Snapshot the current state first so restoring is itself undoable.
   const snapshotted = pushVersion(project, 'Before restore');
-  return { ...snapshotted, rows: version.rows, config: version.config, annotations: version.annotations, updatedAt: new Date().toISOString() };
+  return {
+    ...snapshotted,
+    rows: version.rows,
+    config: version.config,
+    annotations: version.annotations,
+    // Older snapshots predate geography capture; keep the current view in that case.
+    geography: version.geography ?? snapshotted.geography,
+    presentation: version.presentation ?? snapshotted.presentation,
+    compositionId: version.compositionId ?? snapshotted.compositionId,
+    chartOverrides: version.chartOverrides ?? snapshotted.chartOverrides,
+    currentYear: version.currentYear ?? snapshotted.currentYear,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export type ProjectStore = { projects: Project[]; activeId?: string };
@@ -149,10 +190,26 @@ export function migrateLegacyProject(storage: Storage): Project | null {
 
 function normalizeProject(project: Partial<Project>): Project {
   const base = createProject(project.name ?? 'Untitled project');
+  // Projects saved before geography existed stored viewMode/districtScope flat.
+  const legacy = project as Partial<Project> & { viewMode?: unknown; districtScope?: unknown };
+  const geography: MapGeography = {
+    ...base.geography,
+    ...project.geography,
+    viewMode: project.geography?.viewMode ?? (isViewMode(legacy.viewMode) ? legacy.viewMode : base.geography.viewMode),
+    districtScope: project.geography?.districtScope ?? (typeof legacy.districtScope === 'string' ? legacy.districtScope : undefined),
+    selectedIds: Array.isArray(project.geography?.selectedIds) ? project.geography.selectedIds : [],
+  };
   return {
     ...base,
     ...project,
     id: project.id ?? base.id,
+    geography,
+    presentation: {
+      style: { ...base.presentation.style, ...project.presentation?.style },
+      hiddenLayers: project.presentation?.hiddenLayers ?? {},
+    },
+    filters: Array.isArray(project.filters) ? project.filters : [],
+    videoSpec: { ...base.videoSpec, ...project.videoSpec },
     config: { ...DEFAULT_INFOGRAPHIC_CONFIG, ...project.config },
     compositionId: project.compositionId ?? DEFAULT_COMPOSITION_ID,
     chartOverrides: project.chartOverrides ?? {},
@@ -189,6 +246,8 @@ export type SharePayload = {
   v: 1;
   name: string;
   viewMode: ViewMode;
+  geography?: MapGeography;
+  presentation?: MapPresentation;
   compositionId: string;
   chartOverrides: Record<string, Partial<ChartSpec>>;
   config: InfographicConfig;
@@ -202,7 +261,9 @@ export function toSharePayload(project: Project): SharePayload {
   return {
     v: 1,
     name: project.name,
-    viewMode: project.viewMode,
+    viewMode: project.geography.viewMode,
+    geography: project.geography,
+    presentation: project.presentation,
     compositionId: project.compositionId,
     chartOverrides: project.chartOverrides,
     config: project.config,
@@ -282,4 +343,62 @@ function safeParse<T>(raw: string): T | null {
 
 function deepCopy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+
+/** Converts a stored project into the versioned document every renderer reads. */
+export function toProjectDocument(project: Project, brandKits: BrandKit[] = []): ProjectDocument {
+  const kit = brandKits.find((entry) => entry.id === project.brandKitId);
+  return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    name: project.name,
+    geography: project.geography,
+    presentation: project.presentation,
+    compositionId: project.compositionId,
+    chartOverrides: project.chartOverrides,
+    config: project.config,
+    rows: project.rows,
+    annotations: project.annotations,
+    currentYear: project.currentYear,
+    datasetMeta: project.datasetMeta,
+    regionOverrides: project.regionOverrides,
+    filters: project.filters,
+    videoSpec: project.videoSpec,
+    brandKit: kit
+      ? {
+          id: kit.id,
+          name: kit.name,
+          colors: kit.colors,
+          fontFamily: kit.fontFamily,
+          sourcePrefix: kit.sourcePrefix,
+          logoDataUrl: kit.logoDataUrl,
+        }
+      : undefined,
+  };
+}
+
+/** Rebuilds a project from a document, keeping identity fields when supplied. */
+export function projectFromDocument(input: unknown, identity: Partial<Project> = {}): Project {
+  const document = migrateProjectDocument(input, identity.name ?? 'Untitled project');
+  const base = createProject(document.name);
+  return {
+    ...base,
+    ...identity,
+    id: identity.id ?? base.id,
+    name: document.name,
+    geography: document.geography,
+    presentation: document.presentation,
+    compositionId: document.compositionId,
+    chartOverrides: document.chartOverrides,
+    config: document.config,
+    rows: document.rows,
+    annotations: document.annotations,
+    currentYear: document.currentYear,
+    datasetMeta: document.datasetMeta,
+    regionOverrides: document.regionOverrides,
+    filters: document.filters,
+    videoSpec: document.videoSpec,
+    brandKitId: document.brandKit?.id ?? identity.brandKitId,
+    versions: Array.isArray(identity.versions) ? identity.versions : base.versions,
+  };
 }

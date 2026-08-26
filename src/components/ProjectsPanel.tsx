@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Archive, ArchiveRestore, Copy, FolderOpen, History, Link2, Palette, Plus, Save, Share2 } from 'lucide-react';
 import { buildShareUrl, type BrandKit, type Project, type ProjectRole } from '../domain/projects';
+import type { ReactNode } from 'react';
 
 type Props = {
   projects: Project[];
@@ -17,9 +18,11 @@ type Props = {
   onRestoreVersion: (versionId: string) => void;
   onBrandKit: (kitId: string) => void;
   onToast: (message: string) => void;
+  /** Account and server-workspace controls, rendered above the local projects. */
+  accountSlot?: ReactNode;
 };
 
-export function ProjectsPanel({ projects, activeId, role, brandKits, activeBrandKitId, onOpen, onCreate, onRename, onDuplicate, onArchive, onSaveVersion, onRestoreVersion, onBrandKit, onToast }: Props) {
+export function ProjectsPanel({ projects, activeId, role, brandKits, activeBrandKitId, onOpen, onCreate, onRename, onDuplicate, onArchive, onSaveVersion, onRestoreVersion, onBrandKit, onToast, accountSlot }: Props) {
   const [newName, setNewName] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
@@ -49,6 +52,9 @@ export function ProjectsPanel({ projects, activeId, role, brandKits, activeBrand
         </div>
       </div>
 
+      {accountSlot}
+
+      <div className="panel-label">This browser</div>
       <div className="data-action-row">
         <input aria-label="New project name" value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="New project name" onKeyDown={(event) => { if (event.key === 'Enter' && newName.trim()) { onCreate(newName.trim()); setNewName(''); } }} />
         <button className="primary-button" disabled={!newName.trim()} onClick={() => { onCreate(newName.trim()); setNewName(''); }}><Plus size={14} /> Create</button>

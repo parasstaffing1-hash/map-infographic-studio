@@ -186,7 +186,7 @@ export function buildChartModel(spec: ChartSpec, rows: DataRow[], config: Infogr
   const grouped = new Map<string, { label: string; category?: string; values: number[]; secondary: number[]; size: number[] }>();
   for (const { row, value } of numeric) {
     const key = row.region || 'Unknown';
-    const bucket = grouped.get(key) ?? { label: key, category: readText(row, spec.categoryField), values: [], secondary: [], size: [] };
+    const bucket = grouped.get(key) ?? { label: chartLabelForRow(row), category: readText(row, spec.categoryField), values: [], secondary: [], size: [] };
     bucket.values.push(value);
     const secondary = readNumber(row, spec.secondaryField);
     if (secondary !== null) bucket.secondary.push(secondary);
@@ -709,6 +709,11 @@ function readText(row: DataRow, field?: string) {
   if (!field) return undefined;
   const raw = row.raw[field];
   return raw === undefined || raw === null || raw === '' ? undefined : String(raw);
+}
+
+function chartLabelForRow(row: DataRow) {
+  const label = row.raw.chartLabel ?? row.raw.countryLabel;
+  return label === undefined || label === null || label === '' ? row.region || 'Unknown' : String(label);
 }
 
 /** Lists the numeric and text columns a chart can be pointed at. */

@@ -24,6 +24,17 @@ const EnvironmentSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_REGION: z.string().default('us-east-1'),
   S3_ENDPOINT: z.string().url().optional(),
+  // The endpoint a BROWSER can reach. Inside Docker S3_ENDPOINT is an internal
+  // hostname (http://minio:9000) that no browser resolves, so presigned URLs are
+  // signed against this one instead. Leave unset when they are the same host.
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  // Explicit credentials win; when unset the AWS default provider chain is used
+  // (environment, shared config, instance role), which is what Docker relies on.
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  // The API origin a browser can reach, used to build streaming download links.
+  APP_API_PUBLIC_URL: z.string().url().default('http://127.0.0.1:8787'),
+  DOWNLOAD_URL_TTL_SECONDS: z.coerce.number().int().min(30).max(604_800).default(900),
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
 
   // Video rendering
@@ -34,6 +45,13 @@ const EnvironmentSchema = z.object({
   PUBLIC_DOWNLOAD_BASE_URL: z.string().default('http://127.0.0.1:8787/downloads'),
   VIDEO_JOBS_PER_KEY_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(60),
   BATCH_JOBS_PER_KEY_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(120),
+
+  // Application tier: accounts, workspaces and projects.
+  // Optional on purpose — with no DATABASE_URL the render/video API still boots
+  // and the application routes answer 503 instead of the process crashing.
+  DATABASE_URL: z.string().min(1).optional(),
+  SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(8_760).default(720),
+  APP_BASE_URL: z.string().url().default('http://127.0.0.1:4174'),
 });
 
 export type PlatformConfig = ReturnType<typeof loadConfig>;

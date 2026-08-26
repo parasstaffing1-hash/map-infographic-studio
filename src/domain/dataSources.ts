@@ -1,6 +1,6 @@
 import { normalizedRegionKey, parseDelimitedText, parseNumericValue, recordsToDataRows, type DataRow } from './infographic';
 
-export type DatasetOrigin = 'file' | 'paste' | 'google-sheet' | 'rest-api' | 'template-demo' | 'starter';
+export type DatasetOrigin = 'file' | 'paste' | 'google-sheet' | 'rest-api' | 'template-demo' | 'starter' | 'preset';
 
 export type DatasetMeta = {
   origin: DatasetOrigin;

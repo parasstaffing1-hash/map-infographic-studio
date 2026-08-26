@@ -54,7 +54,7 @@ describe('compositions', () => {
   });
 
   it('offers both map and chart-only layouts', () => {
-    expect(COMPOSITIONS.some(compositionHasMap)).toBe(true);
+    expect(COMPOSITIONS.some((composition) => compositionHasMap(composition))).toBe(true);
     expect(COMPOSITIONS.some((composition) => !compositionHasMap(composition))).toBe(true);
   });
 

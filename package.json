@@ -16,6 +16,7 @@
     "prepare:delhi-data": "node scripts/prepare-delhi-data.mjs",
     "prepare:election-data": "node scripts/prepare-election-data.mjs",
     "prepare:usa-china-data": "node scripts/prepare-usa-china-data.mjs",
+    "render:local": "tsx scripts/render-local-video.mts",
     "lint": "tsc -b",
     "production:build": "npm run build -w @map-studio/render-platform",
     "production:test": "npm run test -w @map-studio/render-platform",
@@ -25,7 +26,8 @@
     "verify": "npm run lint && npm test -- --run && npm run production:test && npm run production:build && npm run build",
     "loadtest:batches": "node scripts/loadtest/submit-batches.mjs",
     "loadtest:videos": "node scripts/loadtest/submit-videos.mjs",
-    "loadtest:manifest": "node scripts/loadtest/serve-manifest.mjs"
+    "loadtest:manifest": "node scripts/loadtest/serve-manifest.mjs",
+    "verify:app-api": "node scripts/verify-app-api.mjs"
   },
   "dependencies": {
     "d3-geo": "^3.1.1",

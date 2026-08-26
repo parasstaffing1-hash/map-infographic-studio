@@ -1,7 +1,7 @@
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { ChartSpec } from './charts';
 import { chartToSvg, escapeXml, svgToImage } from './chartSvg';
-import { blockRect, compositionById, resolveChartSpec, type Composition } from './composition';
+import { blockRect, blocksForAspect, compositionById, resolveChartSpec, type Composition } from './composition';
 import { attributionLine, type DatasetMeta } from './dataSources';
 import type { Annotation, DataRow, InfographicConfig, LegendItem } from './infographic';
 import { buildPptx, buildXlsx, SLIDE_SIZES } from './officeExport';
@@ -103,7 +103,7 @@ export async function renderCompositionCanvas(options: CompositionExportOptions,
     context.fillRect(0, 0, width, height);
   }
 
-  for (const block of composition.blocks) {
+  for (const block of blocksForAspect(composition, options.config.aspect)) {
     const rect = blockRect(block, width, height);
     if (rect.width <= 0 || rect.height <= 0) continue;
 
@@ -262,7 +262,7 @@ async function compositionSvg(options: CompositionExportOptions) {
   const parts: string[] = [];
   if (!options.transparent) parts.push(`<rect width="100%" height="100%" fill="${escapeXml(options.config.background)}"/>`);
 
-  for (const block of composition.blocks) {
+  for (const block of blocksForAspect(composition, options.config.aspect)) {
     const rect = blockRect(block, width, height);
     if (block.type === 'map' && options.map) {
       parts.push(`<image href="${options.map.getCanvas().toDataURL('image/png')}" x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" preserveAspectRatio="xMidYMid meet"/>`);

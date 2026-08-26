@@ -100,6 +100,12 @@ export const PALETTES = [
   { id: 'kasol', label: 'Kasol', colors: ['#f3fff7', '#cbeed4', '#8fd4ad', '#54b38c', '#31856c', '#205c50'] },
   { id: 'udaipur', label: 'Udaipur', colors: ['#f5f6ff', '#d7d8f5', '#adb2e4', '#7d86c9', '#575fa6', '#363b70'] },
   { id: 'vizag', label: 'Vizag', colors: ['#fff4e5', '#ffd29d', '#f4a261', '#e76f51', '#a94b48', '#65343e'] },
+  { id: 'viridis', label: 'Viridis', colors: ['#fde725', '#7ad151', '#22a884', '#2a788e', '#414487', '#440154'] },
+  { id: 'magma', label: 'Magma', colors: ['#fcfdbf', '#feb078', '#f1605d', '#b73779', '#721f81', '#000004'] },
+  { id: 'tricolor', label: 'Tricolor', colors: ['#ff9933', '#ffb366', '#ffffff', '#85e085', '#138808', '#000080'] },
+  { id: 'electoral', label: 'Electoral', colors: ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b'] },
+  { id: 'cyber', label: 'Cyber Dark', colors: ['#00f5d4', '#00bbf9', '#7b2cbf', '#9d4edd', '#f72585', '#0f0c29'] },
+  { id: 'emerald', label: 'Emerald', colors: ['#d1fae5', '#6ee7b7', '#10b981', '#059669', '#047857', '#064e3b'] },
 ] as const;
 
 export const DEFAULT_INFOGRAPHIC_CONFIG: InfographicConfig = {

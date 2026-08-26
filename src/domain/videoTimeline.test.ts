@@ -125,3 +125,12 @@ describe('estimatedFileSizeMb', () => {
     expect(large).toBeGreaterThan(small);
   });
 });
+
+describe('audioTrack and copyright-free library', () => {
+  it('includes default audio track configuration', () => {
+    const s = spec();
+    expect(s.audioTrack).toBeDefined();
+    expect(s.audioTrack?.source).toBe('preset');
+    expect(s.audioTrack?.volume).toBeGreaterThan(0);
+  });
+});

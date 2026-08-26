@@ -34,6 +34,8 @@ type MapStudioState = Snapshot & {
   undo: () => void;
   redo: () => void;
   markSaved: () => void;
+  /** Applies saved project state without polluting the undo history. */
+  hydrate: (patch: Partial<Snapshot>) => void;
 };
 
 const initialSnapshot: Snapshot = {
@@ -124,6 +126,7 @@ export const useMapStudio = create<MapStudioState>((set, get) => {
       return { ...next, request: state.request, commandText: state.commandText, saveState: 'unsaved', history: [...state.history, snapshot(state)], future: state.future.slice(1) };
     }),
     markSaved: () => set({ saveState: 'saved' }),
+    hydrate: (patch) => set((state) => ({ ...state, ...patch, history: [], future: [], saveState: 'saved' })),
   };
 });
 
