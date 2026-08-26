@@ -14,6 +14,7 @@ export type ScaleMode = 'continuous' | 'equal' | 'quantile' | 'categorical' | 'c
 export type MissingMode = 'grey' | 'white' | 'hide';
 export type NumberFormat = 'standard' | 'indian' | 'metric';
 export type CanvasAspect = '16:9' | '1:1' | '4:5' | '9:16' | 'a4';
+export type InfographicPresentation = 'standard' | 'editorial' | 'statista';
 
 export type InfographicConfig = {
   title: string;
@@ -43,6 +44,7 @@ export type InfographicConfig = {
   aspect: CanvasAspect;
   resolution: 'hd' | '4k';
   aggregation: 'last' | 'sum' | 'average';
+  presentation: InfographicPresentation;
 };
 
 export type VisualDatum = {
@@ -126,6 +128,7 @@ export const DEFAULT_INFOGRAPHIC_CONFIG: InfographicConfig = {
   aspect: '16:9',
   resolution: 'hd',
   aggregation: 'last',
+  presentation: 'standard',
 };
 
 const REGION_COLUMNS = ['region', 'state', 'district', 'county', 'province', 'prefecture', 'constituency', 'name', 'area', 'geography'];

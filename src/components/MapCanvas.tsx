@@ -76,6 +76,7 @@ export function MapCanvas({ viewMode, selectedIds, hiddenLayers, style, focusPla
   const loadVersionRef = useRef(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
+  const isEditorialStory = infographicConfig?.presentation === 'editorial';
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -102,6 +103,17 @@ export function MapCanvas({ viewMode, selectedIds, hiddenLayers, style, focusPla
       onMapReady?.(null);
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const applyPresentation = () => {
+      if (map.getLayer('osm')) map.setLayoutProperty('osm', 'visibility', isEditorialStory ? 'none' : 'visible');
+      if (map.getLayer('background')) map.setPaintProperty('background', 'background-color', isEditorialStory ? infographicConfig?.background ?? '#fbf8ef' : '#edf2f8');
+    };
+    if (map.isStyleLoaded()) applyPresentation();
+    else map.once('load', applyPresentation);
+  }, [infographicConfig?.background, isEditorialStory]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -224,7 +236,7 @@ export function MapCanvas({ viewMode, selectedIds, hiddenLayers, style, focusPla
           }
           const targetFeatures = focusPlace && viewMode === 'world' ? activeCollection.features.filter((feature) => String(feature.properties.__name ?? '').toLowerCase() === focusPlace.toLowerCase()) : activeCollection.features;
           const bbox = targetFeatures.length ? boundsFor(targetFeatures) : activeCollection.features.length ? boundsFor(activeCollection.features) : null;
-          if (bbox) map.fitBounds(bbox, { padding: { top: 36, right: 30, bottom: 36, left: 30 }, duration: 650, maxZoom: maxZoomFor(viewMode, districtScope) });
+          if (bbox) map.fitBounds(bbox, { padding: isEditorialStory ? { top: 156, right: 92, bottom: 96, left: 92 } : { top: 36, right: 30, bottom: 36, left: 30 }, duration: 650, maxZoom: maxZoomFor(viewMode, districtScope) });
           setStatus('ready');
           onLoad?.(activeCollection.features.length);
         };
@@ -241,7 +253,7 @@ export function MapCanvas({ viewMode, selectedIds, hiddenLayers, style, focusPla
         setErrorMessage(error.message);
       });
     return () => { cancelled = true; };
-  }, [viewMode, focusPlace, districtScope]);
+  }, [viewMode, focusPlace, districtScope, isEditorialStory]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -399,16 +411,16 @@ export function MapCanvas({ viewMode, selectedIds, hiddenLayers, style, focusPla
     <div className="map-stage">
       <div ref={containerRef} className="map-canvas" aria-label={`Interactive ${viewMode === 'place' ? focusPlace ?? 'place' : viewMode === 'india' ? 'India states' : viewMode === 'usa' ? 'USA states' : viewMode === 'china' ? 'China provinces' : viewMode === 'india-districts' ? 'India districts' : viewMode === 'india-assembly' ? 'India MLA constituencies' : viewMode === 'india-parliament' ? 'India MP constituencies' : viewMode === 'usa-counties' ? 'USA counties' : viewMode === 'usa-state-house' ? 'USA state legislative districts' : viewMode === 'usa-congress' ? 'USA congressional districts' : viewMode === 'china-prefectures' ? 'China prefectures' : viewMode === 'china-counties' ? 'China counties' : viewMode === 'china-npc' ? 'China NPC administrative units' : viewMode === 'delhi-districts' ? 'Delhi districts' : viewMode === 'delhi-assembly' ? 'Delhi MLA constituencies' : viewMode === 'jammu-kashmir' ? 'Jammu and Kashmir and Ladakh districts' : viewMode} map`} />
       {viewMode === 'india' && status === 'ready' && <button className="india-map-delhi-hit-area" onClick={openDelhi} aria-label="Delhi" />}
-      <div className="map-loading" data-state={status}>
+      {!isEditorialStory && <div className="map-loading" data-state={status}>
         {status === 'loading' && <><span className="spinner" /> Loading source-backed geometry</>}
         {status === 'ready' && <><span className="status-dot" /> Live map canvas</>}
         {status === 'error' && <>Boundary source unavailable · {errorMessage}</>}
-      </div>
-      <div className="map-overlay-card">
+      </div>}
+      {!isEditorialStory && <div className="map-overlay-card">
         <span className="eyebrow">OPEN BOUNDARIES</span>
         <strong>{viewMode === 'world' ? 'World countries' : viewMode === 'india' ? 'India · interactive states and Union Territories' : viewMode === 'usa' ? 'USA · interactive states and DC' : viewMode === 'china' ? 'China · interactive provinces' : viewMode === 'india-districts' ? `${districtScopeLabel ?? 'India'} · district-wise map` : viewMode === 'india-assembly' ? `${districtScopeLabel ?? 'India'} · MLA seat map` : viewMode === 'india-parliament' ? `${districtScopeLabel ?? 'India'} · MP seat map` : viewMode === 'usa-counties' ? `${districtScopeLabel ?? 'USA'} · county map` : viewMode === 'usa-state-house' ? `${districtScopeLabel ?? 'USA'} · State House map` : viewMode === 'usa-congress' ? `${districtScopeLabel ?? 'USA'} · Congressional map` : viewMode === 'china-prefectures' ? `${districtScopeLabel ?? 'China'} · prefecture map` : viewMode === 'china-counties' ? `${districtScopeLabel ?? 'China'} · county congress context` : viewMode === 'china-npc' ? `${districtScopeLabel ?? 'China'} · NPC electoral-unit context` : viewMode === 'delhi-districts' ? 'Delhi · published district boundaries' : viewMode === 'delhi-assembly' ? 'Delhi · 70 MLA constituencies' : viewMode === 'jammu-kashmir' ? 'Jammu and Kashmir + Ladakh · official UT map' : viewMode === 'place' ? focusPlace ?? 'Place result' : viewMode === 'cities' ? 'Top 100 cities · 2011' : viewMode === 'assembly' ? 'Assembly constituencies' : viewMode === 'district' ? 'District context' : 'State overview'}</strong>
         <small>{viewMode === 'india' ? 'Click any state or UT to open its districts' : viewMode === 'usa' ? 'Click any state to open its county map' : viewMode === 'china' ? 'Click any province to open its prefecture map' : 'Click a region to inspect its entity record'}</small>
-      </div>
+      </div>}
     </div>
   );
 }

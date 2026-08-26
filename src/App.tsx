@@ -5,6 +5,7 @@ import { AnnotationLayer } from './components/AnnotationLayer';
 import { InfographicEditorPanel } from './components/InfographicEditorPanel';
 import { MapCanvas } from './components/MapCanvas';
 import { ProductionPanel } from './components/ProductionPanel';
+import { StatistaStoryOverlay } from './components/StatistaStoryOverlay';
 import { sourceCatalog } from './domain/data';
 import { createVisualization, dataYears, DEFAULT_INFOGRAPHIC_CONFIG, type Annotation, type DataRow, type InfographicConfig } from './domain/infographic';
 import { configForInfographicTemplate, infographicCategories, infographicTemplates, rowsForInfographicTemplate, searchInfographicTemplates, testGeneralInfographicTemplates, testMapInfographicTemplates, testVideoTemplates, type InfographicCategory, type InfographicTemplate } from './domain/infographicTemplates';
@@ -164,6 +165,8 @@ export default function App() {
   const years = useMemo(() => dataYears(dataRows), [dataRows]);
   const visualization = useMemo(() => createVisualization(dataRows, activeFeatures, currentYear, infographicConfig), [activeFeatures, currentYear, dataRows, infographicConfig]);
   const dataVisuals = dataRows.length ? visualization.byFeatureId : {};
+  const isEditorialStory = infographicConfig.presentation === 'editorial';
+  const isStatistaStory = infographicConfig.presentation === 'statista';
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -250,7 +253,7 @@ export default function App() {
     setInfographicConfig(configForInfographicTemplate(template));
     setDataRows(rows);
     setCurrentYear(rows.some((row) => row.year === '2024') ? '2024' : undefined);
-    setAnnotations([{
+    setAnnotations(template.presentation === 'editorial' ? [] : [{
       id: `template-stat-${template.id}`,
       type: 'text',
       text: `${template.statsHook.value} · ${template.statsHook.label}`,
@@ -366,7 +369,7 @@ export default function App() {
           {activeNav === 'templates' && <TemplatesPanel onUse={handleTemplate} />}
           {activeNav === 'filters' && <FiltersPanel filters={filters} onRemove={removeFilter} />}
           {activeNav === 'saved' && <SavedPanel title={infographicConfig.title || canvasTitle} rows={dataRows.length} annotations={annotations.length} onSave={() => { localStorage.setItem('map-studio-infographic-v1', JSON.stringify({ rows: dataRows, config: infographicConfig, annotations, currentYear })); markSaved(); }} onRestore={restoreProject} onToast={setNotice} />}
-          {activeNav === 'video' && <PixelVideoPanel map={mapInstance} viewMode={viewMode} active={pixelVideoActive} years={years} currentYear={currentYear} title={infographicConfig.title || canvasTitle} source={infographicConfig.source} onYearChange={setCurrentYear} onActiveChange={setPixelVideoActive} onToast={setNotice} />}
+          {activeNav === 'video' && <PixelVideoPanel map={mapInstance} viewMode={viewMode} active={pixelVideoActive} years={years} currentYear={currentYear} title={infographicConfig.title || canvasTitle} source={infographicConfig.source} rows={dataRows} config={infographicConfig} onYearChange={setCurrentYear} onActiveChange={setPixelVideoActive} onToast={setNotice} />}
           {activeNav === 'export' && <ExportPanel map={mapInstance} config={infographicConfig} legend={visualization.legend} annotations={annotations} rows={dataRows} currentYear={currentYear} fileStem={canvasTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map-infographic'} onToast={setNotice} />}
           </Suspense>
           {activeNav === 'production' && <ProductionPanel templateId={activeInfographic?.id ?? 'custom-map'} viewMode={viewMode} onToast={setNotice} />}
@@ -397,7 +400,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className={`map-frame aspect-${infographicConfig.aspect.replace(':', '-')} ${pixelVideoActive ? 'pixel-video-active' : ''}`} style={{ background: infographicConfig.background }}>
+          <div className={`map-frame aspect-${infographicConfig.aspect.replace(':', '-')} ${pixelVideoActive ? 'pixel-video-active' : ''} ${isEditorialStory ? 'editorial-story' : ''} ${isStatistaStory ? 'statista-story' : ''}`} style={{ background: infographicConfig.background }}>
             <div className="map-tabs">
               <button className={viewMode === 'place' ? 'active' : ''} onClick={() => handleTab('place')}>Place</button>
               <button className={viewMode === 'india' || isIndiaLevel ? 'active' : ''} onClick={() => handleTab('india')}>India</button>
@@ -426,6 +429,11 @@ export default function App() {
               <span className="map-scale-label">{scaleLabelForView(viewMode, featureCount, districtLabel)}</span>
             </div>
             <MapCanvas viewMode={viewMode} selectedIds={selectedIds} hiddenLayers={hiddenLayers} style={style} focusPlace={focusPlace} placeContext={request.parentGeography} districtScope={districtScope} districtScopeLabel={districtLabel} onSelect={handleSelect} onLoad={setFeatureCount} onMapReady={setMapInstance} dataVisuals={dataVisuals} infographicConfig={infographicConfig} onFeatures={(features, loadedViewMode) => { setActiveFeatures(features); setActiveFeatureViewMode(loadedViewMode); }} />
+            {isEditorialStory && <>
+              <div className="editorial-kicker"><span>{activeInfographic?.kicker ?? 'EDITORIAL MAP STORY'}</span><i /> <span>EDITABLE TEMPLATE</span></div>
+              <div className="editorial-stat-card"><span>{activeInfographic?.statsHook.label}</span><strong>{activeInfographic?.statsHook.value}</strong>{activeInfographic?.statsHook.delta && <small>{activeInfographic.statsHook.delta}</small>}</div>
+            </>}
+            {isStatistaStory && <StatistaStoryOverlay rows={dataRows} config={infographicConfig} currentYear={currentYear} kicker={activeInfographic?.kicker ?? 'MAP DATA · RANKED COMPARISON'} statsHook={activeInfographic?.statsHook} />}
             {infographicConfig.showTitle && <div className="infographic-title-overlay"><h2>{infographicConfig.title || currentTitle}</h2>{infographicConfig.subtitle && <p>{infographicConfig.subtitle}</p>}{currentYear && <span>{currentYear}</span>}</div>}
             <AnnotationLayer annotations={annotations} editable={editorMode === 'editor'} onChange={setAnnotations} />
             {pixelVideoActive && <div className="pixel-video-overlay" aria-hidden="true" />}

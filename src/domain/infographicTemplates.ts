@@ -1,4 +1,4 @@
-import { DEFAULT_INFOGRAPHIC_CONFIG, type DataRow, type InfographicConfig } from './infographic';
+import { DEFAULT_INFOGRAPHIC_CONFIG, type DataRow, type InfographicConfig, type InfographicPresentation } from './infographic';
 import type { GeoFeature, ViewMode } from './types';
 
 export type InfographicCategory = 'Economics' | 'Geopolitics' | 'Tech & AI' | 'Energy & Climate' | 'Demographics' | 'Fintech' | 'Space';
@@ -26,6 +26,9 @@ export type InfographicTemplate = {
   decimals?: number;
   paletteId?: string;
   customColors?: string[];
+  presentation?: InfographicPresentation;
+  kicker?: string;
+  labelMode?: InfographicConfig['labelMode'];
 };
 
 const cleanEnergyRows: DataRow[] = [
@@ -50,16 +53,16 @@ const cleanEnergyRows: DataRow[] = [
 export const libraryInfographicTemplates: InfographicTemplate[] = [
   {
     id: 'india_clean_energy_transition_2024',
-    title: 'India Clean Energy Transition (2024)',
+    title: 'India’s Clean-Energy Leaders',
     category: 'Energy & Climate',
-    description: 'State-wise installed clean power capacity with a ready-to-edit India choropleth.',
+    description: 'An editorial map story of selected state-level clean-power capacity, built for a feed, slide, or poster.',
     recommendedChart: 'map + bar + trend',
     geoScope: 'India',
     tags: ['India', 'Renewables', 'Solar', 'Wind', 'MNRE', 'Map'],
     aspectRatios: ['4:5', '16:9', '1:1'],
     defaultDurationSeconds: 60,
     previewColor: '#059669',
-    statsHook: { label: 'Total installed capacity', value: '190.5 GW', delta: '+24.2% YoY' },
+    statsHook: { label: 'Highest value in this editable sample', value: '28.4 GW', delta: 'Rajasthan' },
     viewMode: 'india',
     openPanel: 'data',
     featured: true,
@@ -69,6 +72,34 @@ export const libraryInfographicTemplates: InfographicTemplate[] = [
     decimals: 1,
     paletteId: 'kochi',
     customColors: ['#ecfdf5', '#a7f3d0', '#34d399', '#059669', '#047857'],
+    presentation: 'editorial',
+    kicker: 'INDIA · CLEAN ENERGY · 2024',
+    labelMode: 'value',
+  },
+  {
+    id: 'india_clean_energy_ranked_2024',
+    title: 'India State-wise Clean Power Capacity',
+    category: 'Energy & Climate',
+    description: 'A publication-ready ranked map story with headline KPI, source line, and a top-state comparison panel.',
+    recommendedChart: 'ranked bars + map',
+    geoScope: 'India',
+    tags: ['India', 'State ranking', 'Renewables', 'Clean energy', 'Statista-style', 'Map'],
+    aspectRatios: ['4:5', '16:9', '1:1'],
+    defaultDurationSeconds: 30,
+    previewColor: '#1677b7',
+    statsHook: { label: 'Highest installed capacity in sample', value: '28.4 GW', delta: 'Rajasthan' },
+    viewMode: 'india',
+    openPanel: 'data',
+    featured: true,
+    source: 'Source: MNRE, Government of India · CEA 2024 report',
+    sampleRows: cleanEnergyRows,
+    suffix: ' GW',
+    decimals: 1,
+    paletteId: 'jodhpur',
+    customColors: ['#e7f3fa', '#b6d9ec', '#6eafd2', '#2f83b5', '#14577e'],
+    presentation: 'statista',
+    kicker: 'INDIA · STATE RANKING · 2024',
+    labelMode: 'value',
   },
   {
     id: 'chile_lithium_copper_superpower', title: 'Chile: The Global Copper & Lithium Superpower', category: 'Geopolitics',
@@ -247,7 +278,7 @@ export function configForInfographicTemplate(template: InfographicTemplate): Inf
     paletteId: template.paletteId ?? 'ladakh',
     customColors: template.customColors ?? [],
     scaleMode: 'continuous',
-    labelMode: template.demoMode ? 'value' : template.sampleRows?.length ? 'both' : 'name',
+    labelMode: template.labelMode ?? (template.demoMode ? 'value' : template.sampleRows?.length ? 'both' : 'name'),
     suffix: template.suffix ?? '',
     decimals: template.decimals ?? 0,
     numberFormat: 'metric',
@@ -255,6 +286,7 @@ export function configForInfographicTemplate(template: InfographicTemplate): Inf
     showTitle: true,
     showLegend: true,
     showSource: true,
+    presentation: template.presentation ?? 'standard',
   };
 }
 

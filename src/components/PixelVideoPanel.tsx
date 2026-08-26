@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, Film, Pause, Play, RotateCcw, SkipBack, StepForward, Video, WandSparkles } from 'lucide-react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
+import { formatDataValue, type DataRow, type InfographicConfig } from '../domain/infographic';
 import type { ViewMode } from '../domain/types';
 
 type Props = {
@@ -11,6 +12,8 @@ type Props = {
   currentYear?: string;
   title?: string;
   source?: string;
+  rows?: DataRow[];
+  config?: InfographicConfig;
   onYearChange?: (year?: string) => void;
   onActiveChange: (active: boolean) => void;
   onToast: (message: string) => void;
@@ -27,13 +30,14 @@ const INDIA_STORYBOARD: CameraKeyframe[] = [
   { center: [78.96, 22.6], zoom: 4.55, bearing: 0 },
 ];
 
-export function PixelVideoPanel({ map, viewMode, active, years = [], currentYear, title = 'Map data story', source = '', onYearChange, onActiveChange, onToast }: Props) {
+export function PixelVideoPanel({ map, viewMode, active, years = [], currentYear, title = 'Map data story', source = '', rows = [], config, onYearChange, onActiveChange, onToast }: Props) {
   const [duration, setDuration] = useState(8);
   const [fps, setFps] = useState(12);
   const [pixelSize, setPixelSize] = useState(4);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [videoMode, setVideoMode] = useState<'data' | 'pixel'>(rows.length ? 'data' : 'pixel');
   const recordingRef = useRef<RecordingSession | null>(null);
   const frameRef = useRef(0);
   const lastYearRef = useRef<string | undefined>(currentYear);
@@ -144,6 +148,7 @@ export function PixelVideoPanel({ map, viewMode, active, years = [], currentYear
       outputContext.imageSmoothingEnabled = false;
       outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
       outputContext.drawImage(scratchCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
+      if (videoMode === 'data') drawDataVideoPanel(outputContext, outputCanvas.width, outputCanvas.height, title, rows, lastYearRef.current, config);
       drawVideoCaption(outputContext, outputCanvas.width, outputCanvas.height, title, lastYearRef.current, source);
       if (frame >= totalFrames) { recorder.stop(); return; }
       recordingRef.current.animationFrame = window.requestAnimationFrame(draw);
@@ -159,7 +164,7 @@ export function PixelVideoPanel({ map, viewMode, active, years = [], currentYear
   };
 
   const keyframeLabels = years.length > 1 ? [years[0], years[Math.floor((years.length - 1) / 2)], years.at(-1)] : ['Reveal', 'Explore', 'Highlight', 'Loop'];
-  return <div className="panel-content video-panel"><div className="panel-heading"><div className="panel-title"><span className="panel-title-icon video-title-icon"><Film size={16} /></span><div><h2>Pixel video</h2><span>Animated map data story</span></div></div></div><div className="video-intro"><WandSparkles size={20} /><div><strong>Make the map move</strong><span>Animate the current India, USA, China, district, or constituency map—with time-series data when Year is present.</span></div></div>{!map && <div className="video-warning"><strong>Map loading</strong><span>Recording becomes available when the map canvas is ready.</span></div>}<label className="video-toggle"><span><strong>Pixel treatment</strong><small>Nearest-neighbour recording effect</small></span><input type="checkbox" checked={active} onChange={(event) => onActiveChange(event.target.checked)} /></label><div className="video-section"><div className="section-title"><span>{years.length > 1 ? 'Time-series timeline' : 'Camera storyboard'}</span><span className="video-frame-count">{formatTime(currentFrame / fps)} / {duration}s</span></div><input className="video-timeline" type="range" min="0" max={totalFrames} value={currentFrame} onChange={(event) => setFrame(Number(event.target.value))} aria-label="Video timeline" /><div className="video-keyframes">{keyframeLabels.map((label) => <span key={label}>{label}</span>)}</div></div><div className="video-control-row"><button className="small-button" onClick={() => setFrame(0)} aria-label="Go to beginning"><SkipBack size={15} /></button><button className="video-play-button" onClick={togglePlayback} disabled={!map || isRecording}>{isPlaying ? <Pause size={15} /> : <Play size={15} />}<span>{isPlaying ? 'Pause preview' : 'Preview animation'}</span></button><button className="small-button" onClick={() => setFrame(currentFrame + Math.max(1, Math.round(fps / 2)))} aria-label="Step forward"><StepForward size={15} /></button></div><div className="video-section video-options"><div className="section-title"><span>Output settings</span></div><label className="select-row"><span>Duration</span><select value={duration} onChange={(event) => { setDuration(Number(event.target.value)); setFrame(0); }}><option value={4}>4 seconds</option><option value={8}>8 seconds</option><option value={12}>12 seconds</option></select></label><label className="select-row"><span>Frame rate</span><select value={fps} onChange={(event) => { setFps(Number(event.target.value)); setFrame(0); }}><option value={12}>12 fps · pixel</option><option value={18}>18 fps · smooth</option><option value={24}>24 fps · clean</option></select></label><label className="range-row"><span>Pixel size</span><output>{pixelSize}px</output><input type="range" min="2" max="8" step="1" value={pixelSize} onChange={(event) => setPixelSize(Number(event.target.value))} /></label></div><button className="primary-button wide video-record-button" onClick={isRecording ? stopRecording : startRecording} disabled={!map}>{isRecording ? <><Pause size={15} /> Stop recording</> : <><Video size={15} /> Record data video</>}</button><button className="outline-button wide" onClick={() => { setFrame(0); onActiveChange(false); onToast('Pixel storyboard reset'); }}><RotateCcw size={15} /> Reset storyboard</button><p className="panel-note"><Download size={14} /> Recording exports a captioned WebM from the animated map canvas.</p></div>;
+  return <div className="panel-content video-panel"><div className="panel-heading"><div className="panel-title"><span className="panel-title-icon video-title-icon"><Film size={16} /></span><div><h2>Pixel video</h2><span>Animated map and data story</span></div></div></div><div className="video-intro"><WandSparkles size={20} /><div><strong>Make the data move</strong><span>Animate the map, reveal ranked values, and export a captioned WebM. Year columns drive the timeline automatically.</span></div></div>{!map && <div className="video-warning"><strong>Map loading</strong><span>Recording becomes available when the map canvas is ready.</span></div>}<label className="video-toggle"><span><strong>Pixel treatment</strong><small>Nearest-neighbour recording effect</small></span><input type="checkbox" checked={active} onChange={(event) => onActiveChange(event.target.checked)} /></label><div className="video-section video-options"><div className="section-title"><span>Video type</span><span className="video-frame-count">{rows.length ? `${rows.length} data rows` : 'Map only'}</span></div><label className="select-row"><span>Story mode</span><select value={videoMode} onChange={(event) => { setVideoMode(event.target.value as 'data' | 'pixel'); setFrame(0); }}><option value="data">Data story · ranked bars</option><option value="pixel">Pixel map · camera only</option></select></label></div><div className="video-section"><div className="section-title"><span>{years.length > 1 ? 'Time-series timeline' : 'Camera storyboard'}</span><span className="video-frame-count">{formatTime(currentFrame / fps)} / {duration}s</span></div><input className="video-timeline" type="range" min="0" max={totalFrames} value={currentFrame} onChange={(event) => setFrame(Number(event.target.value))} aria-label="Video timeline" /><div className="video-keyframes">{keyframeLabels.map((label) => <span key={label}>{label}</span>)}</div></div><div className="video-control-row"><button className="small-button" onClick={() => setFrame(0)} aria-label="Go to beginning"><SkipBack size={15} /></button><button className="video-play-button" onClick={togglePlayback} disabled={!map || isRecording}>{isPlaying ? <Pause size={15} /> : <Play size={15} />}<span>{isPlaying ? 'Pause preview' : 'Preview animation'}</span></button><button className="small-button" onClick={() => setFrame(currentFrame + Math.max(1, Math.round(fps / 2)))} aria-label="Step forward"><StepForward size={15} /></button></div><div className="video-section video-options"><div className="section-title"><span>Output settings</span></div><label className="select-row"><span>Duration</span><select value={duration} onChange={(event) => { setDuration(Number(event.target.value)); setFrame(0); }}><option value={4}>4 seconds</option><option value={8}>8 seconds</option><option value={12}>12 seconds</option></select></label><label className="select-row"><span>Frame rate</span><select value={fps} onChange={(event) => { setFps(Number(event.target.value)); setFrame(0); }}><option value={12}>12 fps · pixel</option><option value={18}>18 fps · smooth</option><option value={24}>24 fps · clean</option></select></label><label className="range-row"><span>Pixel size</span><output>{pixelSize}px</output><input type="range" min="2" max="8" step="1" value={pixelSize} onChange={(event) => setPixelSize(Number(event.target.value))} /></label></div><button className="primary-button wide video-record-button" onClick={isRecording ? stopRecording : startRecording} disabled={!map}>{isRecording ? <><Pause size={15} /> Stop recording</> : <><Video size={15} /> Record data video</>}</button><button className="outline-button wide" onClick={() => { setFrame(0); onActiveChange(false); onToast('Pixel storyboard reset'); }}><RotateCcw size={15} /> Reset storyboard</button><p className="panel-note"><Download size={14} /> Data story mode burns the ranked bars into each video frame, so the downloaded WebM is self-contained.</p></div>;
 }
 
 function cameraFromMap(map: MapLibreMap): CameraKeyframe {
@@ -190,6 +195,48 @@ function drawVideoCaption(context: CanvasRenderingContext2D, width: number, heig
   context.fillText(title.slice(0, 48), padding + 18, padding + 34);
   if (year) { context.fillStyle = '#5b6b82'; context.font = `600 ${Math.max(14, width * .018)}px Inter, Arial`; context.fillText(year, padding + 18, padding + 65); }
   if (source) { context.fillStyle = 'rgba(255,255,255,.9)'; context.fillRect(padding, height - padding - 34, Math.min(width - padding * 2, 680), 28); context.fillStyle = '#66748a'; context.font = `500 ${Math.max(10, width * .011)}px Inter, Arial`; context.fillText(source.slice(0, 100), padding + 10, height - padding - 15); }
+}
+
+function drawDataVideoPanel(context: CanvasRenderingContext2D, width: number, height: number, title: string, rows: DataRow[], year: string | undefined, config?: InfographicConfig) {
+  const visible = rows.filter((row) => !year || !row.year || row.year === year)
+    .map((row) => ({ region: row.region, value: typeof row.value === 'number' ? row.value : Number(String(row.value).replace(/[₹$€£,%\s,()]/g, '')) }))
+    .filter((row) => Number.isFinite(row.value))
+    .sort((first, second) => second.value - first.value)
+    .slice(0, 5);
+  if (!visible.length) return;
+  const panelWidth = Math.min(width * .41, 360);
+  const left = width - panelWidth - Math.max(20, width * .035);
+  const top = Math.max(20, height * .075);
+  const panelHeight = Math.min(height * .62, 330);
+  context.fillStyle = 'rgba(255,255,255,.94)';
+  context.fillRect(left, top, panelWidth, panelHeight);
+  context.fillStyle = '#172238';
+  context.font = `700 ${Math.max(15, width * .022)}px Inter, Arial`;
+  context.fillText('Top regions', left + 18, top + 30);
+  if (year) { context.fillStyle = '#66748a'; context.font = `600 ${Math.max(11, width * .014)}px Inter, Arial`; context.fillText(year, left + panelWidth - 46, top + 30); }
+  const maxValue = visible[0].value || 1;
+  visible.forEach((row, index) => {
+    const rowTop = top + 58 + index * Math.min(48, panelHeight / 6);
+    context.fillStyle = '#66748a';
+    context.font = `600 ${Math.max(10, width * .012)}px Inter, Arial`;
+    context.fillText(`${index + 1}`, left + 18, rowTop);
+    context.fillStyle = '#172238';
+    context.font = `600 ${Math.max(11, width * .014)}px Inter, Arial`;
+    context.fillText(row.region.slice(0, 20), left + 38, rowTop);
+    const formatted = config ? formatDataValue(row.value, config) : row.value.toLocaleString('en-IN');
+    context.fillStyle = '#176da4';
+    context.font = `700 ${Math.max(11, width * .014)}px Inter, Arial`;
+    context.textAlign = 'right';
+    context.fillText(formatted, left + panelWidth - 18, rowTop);
+    context.textAlign = 'left';
+    context.fillStyle = '#dceaf3';
+    context.fillRect(left + 38, rowTop + 9, panelWidth - 56, 6);
+    context.fillStyle = '#2f83b5';
+    context.fillRect(left + 38, rowTop + 9, Math.max(5, ((row.value / maxValue) * (panelWidth - 56))), 6);
+  });
+  context.fillStyle = '#66748a';
+  context.font = `500 ${Math.max(9, width * .01)}px Inter, Arial`;
+  context.fillText(title.slice(0, 42), left + 18, top + panelHeight - 17);
 }
 
 function lerp(start: number, end: number, progress: number) { return start + (end - start) * progress; }

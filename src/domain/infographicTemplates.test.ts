@@ -10,7 +10,7 @@ const features: GeoFeature[] = [
 
 describe('integrated InfoGraphics templates', () => {
   it('exposes the source catalog across countries and topics', () => {
-    expect(infographicTemplates).toHaveLength(33);
+    expect(infographicTemplates).toHaveLength(34);
     expect(infographicTemplates.some((template) => template.geoScope === 'India')).toBe(true);
     expect(infographicTemplates.some((template) => template.viewMode === 'world')).toBe(true);
     expect(infographicCategories).toContain('Tech & AI');
@@ -29,7 +29,13 @@ describe('integrated InfoGraphics templates', () => {
     const config = configForInfographicTemplate(template);
     expect(rows).toHaveLength(8);
     expect(rows[0]).toMatchObject({ region: 'Rajasthan', value: 28.4, year: '2024' });
-    expect(config).toMatchObject({ suffix: ' GW', decimals: 1, aspect: '4:5', showTitle: true });
+    expect(config).toMatchObject({ suffix: ' GW', decimals: 1, aspect: '4:5', showTitle: true, presentation: 'editorial', labelMode: 'value' });
+  });
+
+  it('ships a Statista-style ranked map preset', () => {
+    const template = infographicTemplates.find((item) => item.id === 'india_clean_energy_ranked_2024')!;
+    expect(configForInfographicTemplate(template)).toMatchObject({ presentation: 'statista', aspect: '4:5', labelMode: 'value' });
+    expect(rowsForInfographicTemplate(template)).toHaveLength(8);
   });
 
   it('filters templates by category and free text', () => {
