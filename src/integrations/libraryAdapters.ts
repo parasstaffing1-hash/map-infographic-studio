@@ -34,10 +34,14 @@ export async function smokeTestDuckDb(): Promise<LibrarySmokeResult> {
 }
 
 export async function smokeTestVega(): Promise<LibrarySmokeResult> {
-  const [{ default: vega }, { default: vegaLite }] = await Promise.all([
+  const [vegaModule, vegaLiteModule] = await Promise.all([
     import('vega'),
     import('vega-lite'),
   ]);
+  // These packages publish both ESM and CommonJS entry points; Vite may expose
+  // either shape depending on the optimized dependency cache.
+  const vega = (vegaModule.default ?? vegaModule) as typeof import('vega');
+  const vegaLite = (vegaLiteModule.default ?? vegaLiteModule) as typeof import('vega-lite');
   const spec = vegaLite.compile({
     $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
     data: { values: [{ label: 'VizBridge', value: 1 }] },
