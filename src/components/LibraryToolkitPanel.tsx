@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { Activity, BarChart3, Box, Check, Database, Globe2, GitBranch, Layers3, Loader2, Network, Sparkles } from 'lucide-react';
+import { Activity, BarChart3, Box, Check, Database, Globe2, GitBranch, Layers3, Loader2, Network, Sparkles, Table2 } from 'lucide-react';
 import { renderVegaChart } from '../integrations/vegaChart';
-import { smokeTestArrow, smokeTestCollaboration, smokeTestDeckGl, smokeTestDuckDb, smokeTestFlow, smokeTestObservability, smokeTestPmtiles, smokeTestVega, type LibrarySmokeResult } from '../integrations/libraryAdapters';
+import { smokeTestArrow, smokeTestCollaboration, smokeTestDeckGl, smokeTestDuckDb, smokeTestFlow, smokeTestGridLayout, smokeTestObservability, smokeTestPmtiles, smokeTestTanStackQuery, smokeTestTanStackTable, smokeTestVega, type LibrarySmokeResult } from '../integrations/libraryAdapters';
 import type { VisualizationSpec } from 'vega-embed';
 
 type LibraryCard = { id: string; name: string; description: string; icon: typeof BarChart3; test: () => Promise<LibrarySmokeResult> };
@@ -13,6 +13,9 @@ const libraries: LibraryCard[] = [
   { id: 'arrow', name: 'Apache Arrow', description: 'Compact columnar data interchange for charts and analytics.', icon: Activity, test: smokeTestArrow },
   { id: 'vega', name: 'Vega-Lite', description: 'Portable, declarative chart specifications for reports and dashboards.', icon: BarChart3, test: smokeTestVega },
   { id: 'flow', name: 'React Flow', description: 'Build node-based data stories and transformation pipelines.', icon: GitBranch, test: smokeTestFlow },
+  { id: 'table', name: 'TanStack Table', description: 'Headless sortable, filterable tables for data-rich dashboards.', icon: Table2, test: smokeTestTanStackTable },
+  { id: 'query', name: 'TanStack Query', description: 'Cache remote datasets and keep server state fresh.', icon: Database, test: smokeTestTanStackQuery },
+  { id: 'grid', name: 'React Grid Layout', description: 'Responsive, draggable dashboard layouts with persistent positions.', icon: Layers3, test: smokeTestGridLayout },
   { id: 'collab', name: 'Yjs collaboration', description: 'Offline-first CRDT state, ready for an optional WebSocket provider.', icon: Network, test: smokeTestCollaboration },
   { id: 'otel', name: 'OpenTelemetry', description: 'Trace imports, rendering, and export jobs when telemetry is enabled.', icon: Activity, test: smokeTestObservability },
 ];

@@ -73,6 +73,25 @@ export async function smokeTestFlow(): Promise<LibrarySmokeResult> {
   return { name: 'React Flow', detail: `story graph primitives ready (${Position.Left})` };
 }
 
+export async function smokeTestTanStackTable(): Promise<LibrarySmokeResult> {
+  const { createColumnHelper } = await import('@tanstack/react-table');
+  const helper = createColumnHelper<{ value: number }>();
+  const column = helper.accessor('value', { header: 'Value' });
+  return { name: 'TanStack Table', detail: `headless column ready (${String(column.id ?? 'value')})` };
+}
+
+export async function smokeTestTanStackQuery(): Promise<LibrarySmokeResult> {
+  const { QueryClient } = await import('@tanstack/react-query');
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.clear();
+  return { name: 'TanStack Query', detail: 'server-state cache ready' };
+}
+
+export async function smokeTestGridLayout(): Promise<LibrarySmokeResult> {
+  const grid = await import('react-grid-layout');
+  return { name: 'React Grid Layout', detail: `responsive dashboard layout ready (${Boolean(grid.default || grid.Responsive) ? 'grid' : 'module'})` };
+}
+
 export async function smokeTestObservability(): Promise<LibrarySmokeResult> {
   const { trace } = await import('@opentelemetry/api');
   const span = trace.getTracer('vizbridge').startSpan('library-smoke-test');
