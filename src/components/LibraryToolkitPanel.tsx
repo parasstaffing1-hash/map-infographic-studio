@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Activity, BarChart3, Box, Check, Database, Globe2, GitBranch, Layers3, Loader2, Network, Sparkles } from 'lucide-react';
 import { renderVegaChart } from '../integrations/vegaChart';
 import { smokeTestArrow, smokeTestCollaboration, smokeTestDeckGl, smokeTestDuckDb, smokeTestFlow, smokeTestObservability, smokeTestPmtiles, smokeTestVega, type LibrarySmokeResult } from '../integrations/libraryAdapters';
+import type { VisualizationSpec } from 'vega-embed';
 
 type LibraryCard = { id: string; name: string; description: string; icon: typeof BarChart3; test: () => Promise<LibrarySmokeResult> };
 
@@ -16,7 +17,7 @@ const libraries: LibraryCard[] = [
   { id: 'otel', name: 'OpenTelemetry', description: 'Trace imports, rendering, and export jobs when telemetry is enabled.', icon: Activity, test: smokeTestObservability },
 ];
 
-const sampleSpec = {
+const sampleSpec: VisualizationSpec = {
   $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
   title: 'VizBridge sample',
   data: { values: [{ region: 'Delhi', value: 86 }, { region: 'Mumbai', value: 74 }, { region: 'Bengaluru', value: 68 }, { region: 'Kolkata', value: 55 }] },
@@ -66,4 +67,3 @@ export function LibraryToolkitPanel() {
     <div className="vega-demo"><div className="section-title"><span><BarChart3 size={14} /> Portable chart contract</span><button className="outline-button" onClick={() => void renderChart()} disabled={busy !== null}>{busy === 'chart' ? <Loader2 size={14} className="spin" /> : 'Render Vega-Lite'}</button></div><div className="vega-chart" ref={chartRef} />{status.chart && <small className="library-status">{status.chart}</small>}</div>
   </div>;
 }
-

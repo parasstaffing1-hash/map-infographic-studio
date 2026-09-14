@@ -46,22 +46,22 @@ export async function smokeTestVega(): Promise<LibrarySmokeResult> {
   });
   // Parsing a compiled spec is a cheap, browser-safe validation of the chart
   // contract; actual DOM rendering happens in the toolkit panel.
-  new vega.View(vega.parse(spec));
+  new vega.View(vega.parse(spec.spec));
   return { name: 'Vega-Lite', detail: 'declarative chart spec compiled' };
 }
 
 export async function smokeTestPmtiles(): Promise<LibrarySmokeResult> {
   const { PMTiles } = await import('pmtiles');
   const source = new PMTiles('https://example.com/vizbridge.pmtiles');
-  return { name: 'PMTiles', detail: `HTTP range source ready (${source.getKey()})` };
+  return { name: 'PMTiles', detail: 'HTTP range source ready' };
 }
 
 export async function smokeTestCollaboration(): Promise<LibrarySmokeResult> {
-  const { Doc, Map: YMap } = await import('yjs');
+  const { Doc } = await import('yjs');
   const doc = new Doc();
   const state = doc.getMap('vizbridge');
   state.set('status', 'ready');
-  return { name: 'Yjs', detail: `offline CRDT document ready (${(state as YMap<any>).get('status')})` };
+  return { name: 'Yjs', detail: `offline CRDT document ready (${String(state.get('status'))})` };
 }
 
 export async function smokeTestFlow(): Promise<LibrarySmokeResult> {
@@ -75,4 +75,3 @@ export async function smokeTestObservability(): Promise<LibrarySmokeResult> {
   span.end();
   return { name: 'OpenTelemetry', detail: 'instrumentation API ready' };
 }
-
