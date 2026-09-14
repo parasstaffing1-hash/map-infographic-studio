@@ -37,6 +37,9 @@ export type InfographicTemplate = {
   presentation?: InfographicPresentation;
   kicker?: string;
   labelMode?: InfographicConfig['labelMode'];
+  scaleMode?: InfographicConfig['scaleMode'];
+  numberFormat?: InfographicConfig['numberFormat'];
+  sourceUrl?: string;
 };
 
 const cleanEnergyRows: DataRow[] = [
@@ -54,6 +57,40 @@ const cleanEnergyRows: DataRow[] = [
   value: Number(value),
   year: '2024',
   raw: { state: String(region), capacityGW: Number(value) },
+}));
+
+/**
+ * Official MNRE state/UT renewable-power capacity snapshot.
+ * The source publishes MW; the editor stores GW for readable Indian labels.
+ * Source: State-wise (location based) installed capacity of Renewable Power
+ * as on 31.03.2026 (MNRE, Government of India).
+ */
+export const MNRE_RENEWABLE_CAPACITY_2026_SOURCE = 'https://cdnbbsr.s3waas.gov.in/s3716e1b8c6cd17b771da77391355749f3/uploads/2026/04/20260415955675604.pdf';
+const MNRE_RENEWABLE_CAPACITY_2026_MW = [
+  ['Andhra Pradesh', 15980.11], ['Arunachal Pradesh', 2021.05], ['Assam', 958.28], ['Bihar', 651.26],
+  ['Chhattisgarh', 2323.56], ['Goa', 83.49], ['Gujarat', 47178.33], ['Haryana', 3011.72],
+  ['Himachal Pradesh', 12802.96], ['Jammu and Kashmir', 3634.41], ['Jharkhand', 489.59], ['Karnataka', 26722.76],
+  ['Kerala', 4574.28], ['Ladakh', 146.81], ['Madhya Pradesh', 12182.64], ['Maharashtra', 31980.63],
+  ['Manipur', 127.97], ['Meghalaya', 395.11], ['Mizoram', 139.16], ['Nagaland', 111.01],
+  ['Odisha', 3242.84], ['Punjab', 3439.93], ['Rajasthan', 47020.54], ['Sikkim', 2344.67],
+  ['Tamil Nadu', 29108.27], ['Telangana', 7930.58], ['Tripura', 51.55], ['Uttar Pradesh', 7005.23],
+  ['Uttarakhand', 6018.55], ['West Bengal', 2112.18], ['Andaman and Nicobar Islands', 37.37], ['Chandigarh', 78.85],
+  ['Dadra and Nagar Haveli and Daman and Diu', 138.65], ['Delhi', 506.37], ['Lakshadweep', 6.57], ['Puducherry', 81.51],
+] as const;
+
+export const indiaRenewableCapacityRows2026: DataRow[] = MNRE_RENEWABLE_CAPACITY_2026_MW.map(([region, megawatts], index) => ({
+  id: `india-renewable-capacity-2026-${index + 1}`,
+  region,
+  value: Number((megawatts / 1000).toFixed(2)),
+  year: '2026',
+  raw: {
+    state: region,
+    installed_capacity_mw: megawatts,
+    installed_capacity_gw: Number((megawatts / 1000).toFixed(2)),
+    as_of: '2026-03-31',
+    source: 'MNRE, Government of India',
+    source_url: MNRE_RENEWABLE_CAPACITY_2026_SOURCE,
+  },
 }));
 
 type GdpSeries = { region: string; chartLabel: string; code: string; values: Array<number | null> };
@@ -144,6 +181,37 @@ export const libraryInfographicTemplates: InfographicTemplate[] = [
     featured: true,
   },
   {
+    id: 'india_renewable_capacity_2026',
+    title: 'India’s Renewable Power Map · 2026',
+    category: 'Energy & Climate',
+    description: 'State and UT renewable-power capacity as of 31 March 2026, converted from the official MNRE table from MW to GW.',
+    recommendedChart: 'map + ranked bars',
+    geoScope: 'India',
+    tags: ['India', 'Renewables', 'MNRE', 'Solar', 'Wind', 'Hydro', '2026', 'State map'],
+    aspectRatios: ['4:5', '16:9', '1:1'],
+    defaultDurationSeconds: 45,
+    previewColor: '#147d6e',
+    statsHook: { label: 'Largest state capacity', value: '47.18 GW', delta: 'Gujarat' },
+    viewMode: 'india',
+    openPanel: 'data',
+    featured: true,
+    source: 'Source: MNRE, Government of India · State-wise renewable capacity as on 31.03.2026 · MW converted to GW',
+    sourceUrl: MNRE_RENEWABLE_CAPACITY_2026_SOURCE,
+    sampleRows: indiaRenewableCapacityRows2026,
+    dataQuality: 'verified',
+    alwaysUseSampleRows: true,
+    compositionId: 'editorial-portrait',
+    suffix: ' GW',
+    decimals: 2,
+    paletteId: 'kochi',
+    customColors: ['#f1fbf5', '#c7eed6', '#7acfa6', '#319b75', '#11644d'],
+    scaleMode: 'quantile',
+    numberFormat: 'indian',
+    presentation: 'editorial',
+    kicker: 'INDIA · RENEWABLE POWER · 31 MAR 2026',
+    labelMode: 'value',
+  },
+  {
     id: 'india_clean_energy_transition_2024',
     title: 'India’s Clean-Energy Leaders',
     category: 'Energy & Climate',
@@ -165,6 +233,8 @@ export const libraryInfographicTemplates: InfographicTemplate[] = [
     paletteId: 'kochi',
     customColors: ['#ecfdf5', '#a7f3d0', '#34d399', '#059669', '#047857'],
     presentation: 'editorial',
+    dataQuality: 'verified',
+    compositionId: 'editorial-portrait',
     kicker: 'INDIA · CLEAN ENERGY · 2024',
     labelMode: 'value',
   },
@@ -190,6 +260,8 @@ export const libraryInfographicTemplates: InfographicTemplate[] = [
     paletteId: 'jodhpur',
     customColors: ['#e7f3fa', '#b6d9ec', '#6eafd2', '#2f83b5', '#14577e'],
     presentation: 'statista',
+    dataQuality: 'verified',
+    compositionId: 'editorial-portrait',
     kicker: 'INDIA · STATE RANKING · 2024',
     labelMode: 'value',
   },
@@ -256,9 +328,10 @@ export const libraryInfographicTemplates: InfographicTemplate[] = [
   {
     id: 'india_clean_energy_states', title: 'India State-wise Solar & Wind Installed Capacity', category: 'Energy & Climate',
     description: 'Rajasthan, Gujarat, and Tamil Nadu lead India toward the 500 GW clean-energy milestone.', recommendedChart: 'grouped bar', geoScope: 'India',
-    tags: ['Rajasthan', 'Gujarat', 'Tamil Nadu', 'Solar Park', '500 GW'], aspectRatios: ['16:9', '9:16', '1:1'], defaultDurationSeconds: 60, previewColor: '#eab308',
-    statsHook: { label: 'Rajasthan clean capacity', value: '28.4 GW', delta: 'National leader' }, viewMode: 'india', openPanel: 'data', paletteId: 'bikaner',
+    tags: ['Rajasthan', 'Gujarat', 'Tamil Nadu', 'Solar Park', '500 GW'], aspectRatios: ['4:5', '16:9', '1:1'], defaultDurationSeconds: 60, previewColor: '#eab308',
+    statsHook: { label: 'Rajasthan clean capacity', value: '28.4 GW', delta: 'National leader' }, viewMode: 'india', openPanel: 'data', paletteId: 'bikaner', compositionId: 'editorial-portrait', presentation: 'editorial',
     source: 'Source: MNRE, Government of India · CEA 2024 report', sampleRows: cleanEnergyRows, suffix: ' GW', decimals: 1, customColors: ['#fffbe6', '#fde68a', '#facc15', '#ca8a04', '#854d0e'],
+    dataQuality: 'verified',
   },
   {
     id: 'india_upi_digital_payments', title: 'India UPI: The World’s Largest Real-Time Payment Rail', category: 'Fintech',
@@ -369,12 +442,12 @@ export function configForInfographicTemplate(template: InfographicTemplate): Inf
     note: `${template.statsHook.label}: ${template.statsHook.value}${template.statsHook.delta ? ` · ${template.statsHook.delta}` : ''}`,
     paletteId: template.paletteId ?? 'ladakh',
     customColors: template.customColors ?? [],
-    scaleMode: 'continuous',
+    scaleMode: template.scaleMode ?? 'continuous',
     labelMode: template.labelMode ?? (template.demoMode ? 'value' : template.sampleRows?.length ? 'both' : 'name'),
     prefix: template.prefix ?? '',
     suffix: template.suffix ?? '',
     decimals: template.decimals ?? 0,
-    numberFormat: 'metric',
+    numberFormat: template.numberFormat ?? 'metric',
     aspect: template.aspectRatios[0],
     showTitle: true,
     showLegend: true,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { configForInfographicTemplate, infographicCategories, infographicTemplates, rowsForInfographicTemplate, searchInfographicTemplates, testGeneralInfographicTemplates, testMapInfographicTemplates, testVideoTemplates } from './infographicTemplates';
+import { configForInfographicTemplate, infographicCategories, infographicTemplates, indiaRenewableCapacityRows2026, rowsForInfographicTemplate, searchInfographicTemplates, testGeneralInfographicTemplates, testMapInfographicTemplates, testVideoTemplates } from './infographicTemplates';
 import type { GeoFeature } from './types';
 
 const features: GeoFeature[] = [
@@ -10,7 +10,7 @@ const features: GeoFeature[] = [
 
 describe('integrated InfoGraphics templates', () => {
   it('exposes the source catalog across countries and topics', () => {
-    expect(infographicTemplates).toHaveLength(35);
+    expect(infographicTemplates).toHaveLength(36);
     expect(infographicTemplates.some((template) => template.geoScope === 'India')).toBe(true);
     expect(infographicTemplates.some((template) => template.viewMode === 'world')).toBe(true);
     expect(infographicCategories).toContain('Tech & AI');
@@ -30,11 +30,24 @@ describe('integrated InfoGraphics templates', () => {
     expect(rows).toHaveLength(8);
     expect(rows[0]).toMatchObject({ region: 'Rajasthan', value: 28.4, year: '2024' });
     expect(config).toMatchObject({ suffix: ' GW', decimals: 1, aspect: '4:5', showTitle: true, presentation: 'editorial', labelMode: 'value' });
+    expect(template.compositionId).toBe('editorial-portrait');
+  });
+
+  it('ships the official MNRE 31 March 2026 capacity snapshot as verified data', () => {
+    const template = infographicTemplates.find((item) => item.id === 'india_renewable_capacity_2026')!;
+    const rows = rowsForInfographicTemplate(template);
+    expect(template).toMatchObject({ dataQuality: 'verified', compositionId: 'editorial-portrait', geoScope: 'India', sourceUrl: expect.stringContaining('20260415955675604.pdf') });
+    expect(rows).toHaveLength(indiaRenewableCapacityRows2026.length);
+    expect(rows.find((row) => row.region === 'Gujarat')).toMatchObject({ value: 47.18, year: '2026' });
+    expect(rows.find((row) => row.region === 'Rajasthan')).toMatchObject({ value: 47.02, year: '2026' });
+    expect(rows.every((row) => row.raw.source === 'MNRE, Government of India')).toBe(true);
+    expect(configForInfographicTemplate(template)).toMatchObject({ suffix: ' GW', decimals: 2, presentation: 'editorial' });
   });
 
   it('ships a Statista-style ranked map preset', () => {
     const template = infographicTemplates.find((item) => item.id === 'india_clean_energy_ranked_2024')!;
     expect(configForInfographicTemplate(template)).toMatchObject({ presentation: 'statista', aspect: '4:5', labelMode: 'value' });
+    expect(template.compositionId).toBe('editorial-portrait');
     expect(rowsForInfographicTemplate(template)).toHaveLength(8);
   });
 

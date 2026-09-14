@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from './config.js';
 import { BatchRenderRequestSchema, ManifestRecordSchema, RenderTaskSchema } from './contracts.js';
+import { databasePoolOptions } from './db.js';
+import { createObjectStore } from './storage.js';
 
 const project = {
   rows: [{ id: 'delhi', region: 'Delhi', value: 42, raw: { region: 'Delhi', value: 42 } }],
@@ -39,5 +41,32 @@ describe('production contracts', () => {
   it('parses false booleans without truthy-string coercion', () => {
     expect(loadConfig({ S3_FORCE_PATH_STYLE: 'false' }).S3_FORCE_PATH_STYLE).toBe(false);
     expect(loadConfig({ S3_FORCE_PATH_STYLE: 'true' }).S3_FORCE_PATH_STYLE).toBe(true);
+  });
+
+  it('maps Cloudflare R2 aliases to the existing S3 storage config', async () => {
+    const config = loadConfig({
+      R2_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
+      R2_BUCKET: 'map-studio-renders',
+      R2_ACCESS_KEY_ID: 'r2-access',
+      R2_SECRET_ACCESS_KEY: 'r2-secret',
+    });
+    expect(config.S3_BUCKET).toBe('map-studio-renders');
+    expect(config.S3_REGION).toBe('auto');
+    expect(config.S3_ENDPOINT).toBe('https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com');
+    expect(config.S3_ACCESS_KEY_ID).toBe('r2-access');
+    expect(config.S3_SECRET_ACCESS_KEY).toBe('r2-secret');
+    expect(config.S3_FORCE_PATH_STYLE).toBe(false);
+    const signedUrl = await createObjectStore(config).presign('renders/test.png', 60);
+    expect(signedUrl).toContain('r2.cloudflarestorage.com');
+    expect(signedUrl).toContain('X-Amz-Signature=');
+  });
+
+  it('maps an Aiven URL and normalizes its sslmode for node-postgres', () => {
+    const config = loadConfig({ AIVEN_POSTGRES_URL: 'postgres://avnadmin:secret@pg.aivencloud.com:12345/defaultdb?sslmode=require' });
+    expect(config.DATABASE_URL).toBe('postgres://avnadmin:secret@pg.aivencloud.com:12345/defaultdb?sslmode=require');
+    const options = databasePoolOptions({ DATABASE_URL: config.DATABASE_URL });
+    expect(options).not.toBeNull();
+    expect(options?.connectionString).not.toContain('sslmode=');
+    expect(options?.ssl).toMatchObject({ rejectUnauthorized: false });
   });
 });

@@ -4,6 +4,7 @@ import { chartToSvg, escapeXml, svgToImage } from './chartSvg';
 import { blockRect, blocksForAspect, compositionById, resolveChartSpec, type Composition } from './composition';
 import { attributionLine, type DatasetMeta } from './dataSources';
 import type { Annotation, DataRow, InfographicConfig, LegendItem } from './infographic';
+import { hasWatermarkContent, normalizeWatermark, type WatermarkSettings } from './watermark';
 import { buildPptx, buildXlsx, SLIDE_SIZES } from './officeExport';
 
 export type CompositionExportFormat = 'png' | 'jpg' | 'svg' | 'pdf' | 'pptx' | 'xlsx' | 'csv';
@@ -44,6 +45,7 @@ export type CompositionExportOptions = {
   transparent: boolean;
   fileBase: string;
   logoDataUrl?: string;
+  watermark?: WatermarkSettings;
 };
 
 export async function exportComposition(format: CompositionExportFormat, options: CompositionExportOptions) {
@@ -136,6 +138,7 @@ export async function renderCompositionCanvas(options: CompositionExportOptions,
 
   drawAnnotations(context, options.annotations, width, height);
   if (options.logoDataUrl) await drawLogo(context, options.logoDataUrl, width, height);
+  if (options.watermark) await drawWatermark(context, options.watermark, width, height);
   return canvas;
 }
 
@@ -255,6 +258,45 @@ async function drawLogo(context: CanvasRenderingContext2D, dataUrl: string, widt
   context.drawImage(image, width - logoWidth - Math.round(width * 0.03), Math.round(height * 0.03), logoWidth, logoHeight);
 }
 
+async function drawWatermark(context: CanvasRenderingContext2D, input: WatermarkSettings, width: number, height: number) {
+  const watermark = normalizeWatermark(input);
+  if (!watermark.enabled || !hasWatermarkContent(watermark)) return;
+  const margin = Math.max(18, Math.round(Math.min(width, height) * 0.03));
+  const maxWidth = Math.round(width * (watermark.size / 100));
+  const maxHeight = Math.round(height * 0.16);
+  let drawWidth = maxWidth;
+  let drawHeight = Math.max(30, Math.round(height * 0.06));
+  const image = watermark.dataUrl ? await loadImage(watermark.dataUrl).catch(() => null) : null;
+  if (image) {
+    drawHeight = Math.min(maxHeight, Math.max(18, Math.round((image.height / image.width) * drawWidth)));
+    if (drawHeight > maxHeight) {
+      drawHeight = maxHeight;
+      drawWidth = Math.round((image.width / image.height) * drawHeight);
+    }
+  }
+  const position = positionedWatermark(watermark.position, width, height, drawWidth, drawHeight, margin);
+  context.save();
+  context.globalAlpha = watermark.opacity;
+  if (image) {
+    context.drawImage(image, position.x, position.y, position.width, position.height);
+  } else if (watermark.text?.trim()) {
+    context.fillStyle = readableTextColor('#ffffff');
+    context.font = `700 ${Math.max(14, Math.round(drawWidth * 0.11))}px Inter, Arial, sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(watermark.text.trim(), position.x + position.width / 2, position.y + position.height / 2, position.width);
+  }
+  context.restore();
+}
+
+function positionedWatermark(position: WatermarkSettings['position'], width: number, height: number, watermarkWidth: number, watermarkHeight: number, margin: number) {
+  if (position === 'top-left') return { x: margin, y: margin, width: watermarkWidth, height: watermarkHeight };
+  if (position === 'top-right') return { x: width - watermarkWidth - margin, y: margin, width: watermarkWidth, height: watermarkHeight };
+  if (position === 'bottom-left') return { x: margin, y: height - watermarkHeight - margin, width: watermarkWidth, height: watermarkHeight };
+  if (position === 'center') return { x: (width - watermarkWidth) / 2, y: (height - watermarkHeight) / 2, width: watermarkWidth, height: watermarkHeight };
+  return { x: width - watermarkWidth - margin, y: height - watermarkHeight - margin, width: watermarkWidth, height: watermarkHeight };
+}
+
 async function compositionSvg(options: CompositionExportOptions) {
   const composition = compositionById(options.compositionId);
   const width = options.preset.width;
@@ -281,6 +323,19 @@ async function compositionSvg(options: CompositionExportOptions) {
 
   for (const annotation of options.annotations) {
     parts.push(`<text x="${(annotation.x / 100) * width}" y="${(annotation.y / 100) * height}" font-size="${Math.max(14, width * 0.016 * (annotation.size / 100))}" font-weight="700" fill="${escapeXml(annotation.color)}">${escapeXml(annotation.type === 'text' ? annotation.text : annotation.type === 'marker' ? '●' : '➜')}</text>`);
+  }
+
+  const watermark = normalizeWatermark(options.watermark);
+  if (watermark.enabled && hasWatermarkContent(watermark)) {
+    const margin = Math.max(18, Math.round(Math.min(width, height) * 0.03));
+    const watermarkWidth = Math.round(width * (watermark.size / 100));
+    const watermarkHeight = Math.max(30, Math.round(height * 0.08));
+    const rect = positionedWatermark(watermark.position, width, height, watermarkWidth, watermarkHeight, margin);
+    if (watermark.dataUrl) {
+      parts.push(`<image href="${escapeXml(watermark.dataUrl)}" x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" preserveAspectRatio="xMidYMid meet" opacity="${watermark.opacity}"/>`);
+    } else if (watermark.text?.trim()) {
+      parts.push(`<text x="${rect.x + rect.width / 2}" y="${rect.y + rect.height / 2}" text-anchor="middle" dominant-baseline="middle" font-size="${Math.max(14, Math.round(rect.width * 0.11))}" font-weight="700" fill="#24324a" opacity="${watermark.opacity}">${escapeXml(watermark.text.trim())}</text>`);
+    }
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="Inter, system-ui, Arial, sans-serif">${parts.join('')}</svg>`;

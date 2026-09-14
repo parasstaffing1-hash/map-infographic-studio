@@ -162,6 +162,64 @@ The video worker builds its own registry (default metrics prefixed `map_studio_v
 - Set `BATCH_JOBS_PER_KEY_PER_HOUR` and `VIDEO_JOBS_PER_KEY_PER_HOUR` to what each key is entitled to; the defaults are conservative.
 - Use a load test with representative templates and assets before accepting a high-volume customer batch. Published throughput figures should come from your own measurements.
 
+## Aiven PostgreSQL and Cloudflare R2
+
+The application already speaks PostgreSQL and the S3 API, so Aiven and R2 only
+require environment configuration. Keep these variables identical for the API,
+shard workers, video worker, and any process that writes or reads render output.
+
+### Aiven PostgreSQL
+
+Copy the PostgreSQL connection URI from the Aiven service overview into
+`AIVEN_POSTGRES_URL` (or use `DATABASE_URL` directly). Aiven normally includes
+`?sslmode=require`; the API converts that mode to a TLS connection and defaults
+to encrypted transport without CA verification, matching Aiven's default.
+
+For certificate verification, set `DATABASE_SSL_REJECT_UNAUTHORIZED=true` and
+provide the downloaded Aiven CA with `DATABASE_SSL_CA_FILE` (or inline it with
+`DATABASE_SSL_CA`). Aiven documents `verify-ca` and `verify-full` for this
+stronger configuration. Before the first boot, confirm the selected Aiven
+service exposes the extensions required by the migrations (PostGIS, `pg_trgm`,
+and `pgcrypto`). If an extension migration was recorded as skipped, enable the
+extension and remove that migration's row from `schema_migrations` before
+retrying.
+
+```dotenv
+AIVEN_POSTGRES_URL=postgres://avnadmin:<password>@<host>.aivencloud.com:<port>/<database>?sslmode=require
+# DATABASE_SSL_REJECT_UNAUTHORIZED=true
+# DATABASE_SSL_CA_FILE=/run/secrets/aiven-ca.pem
+```
+
+### Cloudflare R2
+
+R2 uses its S3-compatible API. Set the R2 aliases below, or set the equivalent
+`S3_*` variables directly. When `R2_ACCOUNT_ID` is present, the endpoint is
+derived as `https://<account-id>.r2.cloudflarestorage.com`; the region is
+`auto`, and path-style addressing remains disabled. Keep the bucket private:
+the existing download route issues short-lived presigned GET URLs. Leave
+`S3_PUBLIC_ENDPOINT` unset for the R2 S3 endpoint; a custom R2 domain is not a
+signing endpoint for these URLs.
+
+```dotenv
+R2_ACCOUNT_ID=<cloudflare-account-id>
+R2_BUCKET=map-studio-renders
+R2_ACCESS_KEY_ID=<r2-access-key-id>
+R2_SECRET_ACCESS_KEY=<r2-secret-access-key>
+R2_REGION=auto
+# Optional when not using the derived endpoint:
+# R2_ENDPOINT=https://<cloudflare-account-id>.r2.cloudflarestorage.com
+S3_FORCE_PATH_STYLE=false
+DOWNLOAD_URL_TTL_SECONDS=900
+```
+
+Create an R2 API token with object read/write access scoped to this bucket, and
+store both the access key and secret in your deployment secret manager. Cloudflare
+documents the S3 endpoint, `auto` region, and presigned URL behavior in its
+[S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/) and
+[presigned URL](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)
+guides. Aiven's PostgreSQL TLS modes are documented in its
+[connection guide](https://aiven.io/docs/products/postgresql/howto/list-code-samples).
+
 ## Security boundaries
 
 The API requires a bearer key, rate-limits traffic, validates all payloads, redacts authorization logs, enforces size and shard limits, and restricts manifest hosts. The renderer requires a separate internal token. It uses a fresh browser context for every record and does not persist an editor API key. This reduces, but does not eliminate, rendering-risk exposure: run renderers in isolated containers with egress controls and regularly patch Chromium and Node.js.
@@ -188,3 +246,11 @@ Run `node scripts/loadtest/submit-videos.mjs --help` for the flags. Use an API k
 ## Local stack
 
 `docker compose up --build` starts Redis, MinIO, web, API, two shard workers, a renderer, and a video worker. Its default credentials are local-only convenience defaults. They are not suitable for an internet-facing deployment.
+
+The Compose file keeps those local defaults but allows the generic
+`DATABASE_URL`, `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`,
+`S3_PUBLIC_ENDPOINT`, `S3_FORCE_PATH_STYLE`, `S3_ACCESS_KEY_ID`, and
+`S3_SECRET_ACCESS_KEY` variables to override them. For a Compose deployment
+using Aiven/R2, set those variables in the shell or `.env` before starting the
+stack; the Aiven/R2 aliases above are intended for deployments that pass the
+environment directly to the platform services.

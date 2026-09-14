@@ -41,6 +41,44 @@ export type ParsedTable = {
   records: Array<Array<string | number | boolean | null>>;
 };
 
+/**
+ * Applies safe, deterministic cleanup before region matching. This mirrors
+ * the spreadsheet-first workflow: normalize whitespace and common Indian
+ * place-name aliases, while preserving categorical values.
+ */
+export function cleanDataRows(rows: DataRow[]): DataRow[] {
+  return rows.map((row) => {
+    const region = canonicalRegionAlias(row.region.trim().replace(/\s+/g, ' '));
+    const rawValue = typeof row.value === 'string' ? row.value.trim() : row.value;
+    const value = typeof rawValue === 'string' && rawValue !== '' ? parseCleanNumber(rawValue) : rawValue;
+    return {
+      ...row,
+      region,
+      value,
+      year: row.year?.trim() || undefined,
+      parent: row.parent?.trim() || undefined,
+      raw: { ...row.raw },
+    };
+  });
+}
+
+function parseCleanNumber(value: string): string | number {
+  const normalized = value.replace(/[₹$€£,%]/g, '').replace(/,/g, '').trim();
+  if (/^-?(?:\d+\.?\d*|\.\d+)$/.test(normalized)) return Number(normalized);
+  return value;
+}
+
+function canonicalRegionAlias(value: string) {
+  const aliases: Record<string, string> = {
+    bangalore: 'Bengaluru',
+    bombay: 'Mumbai',
+    calcutta: 'Kolkata',
+    madras: 'Chennai',
+    gurgaon: 'Gurugram',
+  };
+  return aliases[value.toLowerCase()] ?? value;
+}
+
 const REGION_HINTS = ['region', 'state', 'district', 'county', 'province', 'prefecture', 'constituency', 'name', 'area', 'geography', 'ut', 'territory'];
 const VALUE_HINTS = ['value', 'amount', 'score', 'rate', 'percent', 'percentage', 'population', 'count', 'total', 'gdp', 'seats', 'votes'];
 const YEAR_HINTS = ['year', 'date', 'period', 'time', 'fy'];

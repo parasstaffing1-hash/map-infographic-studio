@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,12 +8,86 @@ export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;
 
 /** Only the fields the database layer cares about, so tests can pass a literal. */
-export type DatabaseConfig = { DATABASE_URL?: string | undefined };
+export type DatabaseConfig = {
+  DATABASE_URL?: string | undefined;
+  DATABASE_SSL?: boolean | undefined;
+  DATABASE_SSL_REJECT_UNAUTHORIZED?: boolean | undefined;
+  DATABASE_SSL_CA?: string | undefined;
+  DATABASE_SSL_CA_FILE?: string | undefined;
+};
+
+const SSL_QUERY_KEYS = ['sslmode', 'ssl', 'sslrootcert', 'sslcert', 'sslkey'];
+
+function connectionStringDetails(connectionString: string) {
+  try {
+    const url = new URL(connectionString);
+    return {
+      url,
+      mode: url.searchParams.get('sslmode')?.toLowerCase(),
+      rootCert: url.searchParams.get('sslrootcert'),
+      cert: url.searchParams.get('sslcert'),
+      key: url.searchParams.get('sslkey'),
+    };
+  } catch {
+    return { url: null, mode: undefined, rootCert: null, cert: null, key: null };
+  }
+}
+
+function readSslFile(filePath: string | null | undefined) {
+  if (!filePath || filePath === 'system') return undefined;
+  return readFileSync(filePath, 'utf8');
+}
+
+/**
+ * Builds pg options without letting pg-connection-string silently replace an
+ * explicit SSL object. Aiven supplies `sslmode=require` in its URI; keeping
+ * that query parameter while also passing `ssl` makes the effective behavior
+ * depend on the pg version, so the mode is normalized here.
+ */
+export function databasePoolOptions(config: DatabaseConfig) {
+  if (!config.DATABASE_URL) return null;
+
+  const details = connectionStringDetails(config.DATABASE_URL);
+  const hasSslConfig = config.DATABASE_SSL !== undefined ||
+    config.DATABASE_SSL_REJECT_UNAUTHORIZED !== undefined ||
+    config.DATABASE_SSL_CA !== undefined ||
+    config.DATABASE_SSL_CA_FILE !== undefined;
+  const sslModeRequestsTls = details.mode !== undefined && details.mode !== 'disable';
+  const sslRequested = config.DATABASE_SSL ?? (sslModeRequestsTls || hasSslConfig);
+  const options: {
+    connectionString: string;
+    ssl?: false | { rejectUnauthorized: boolean; ca?: string; cert?: string; key?: string };
+  } = { connectionString: config.DATABASE_URL };
+
+  if (sslRequested) {
+    const verifiesCertificate = details.mode === 'verify-ca' || details.mode === 'verify-full';
+    options.ssl = {
+      // Aiven's default sslmode=require encrypts traffic but does not require
+      // CA verification. verify-ca/verify-full and explicit overrides do.
+      rejectUnauthorized: config.DATABASE_SSL_REJECT_UNAUTHORIZED ?? verifiesCertificate,
+      ca: config.DATABASE_SSL_CA ?? readSslFile(config.DATABASE_SSL_CA_FILE) ?? readSslFile(details.rootCert),
+      cert: readSslFile(details.cert),
+      key: readSslFile(details.key),
+    };
+  } else if (config.DATABASE_SSL === false || details.mode === 'disable') {
+    options.ssl = false;
+  }
+
+  // Remove every libpq SSL query option once we have converted it to a stable
+  // Node TLS object. Other connection parameters remain untouched.
+  if (details.url && (hasSslConfig || details.mode !== undefined)) {
+    for (const key of SSL_QUERY_KEYS) details.url.searchParams.delete(key);
+    options.connectionString = details.url.toString();
+  }
+
+  return options;
+}
 
 export function createPool(config: DatabaseConfig): Pool | null {
-  if (!config.DATABASE_URL) return null;
+  const options = databasePoolOptions(config);
+  if (!options) return null;
   return new pg.Pool({
-    connectionString: config.DATABASE_URL,
+    ...options,
     max: 10,
     idleTimeoutMillis: 30_000,
     // A cold database (first boot, container still warming) can take a while to

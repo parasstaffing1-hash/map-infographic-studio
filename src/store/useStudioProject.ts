@@ -16,7 +16,7 @@ import {
   type Project,
   type ProjectRole,
 } from '../domain/projects';
-import type { MapGeography, MapPresentation, ProjectDocument } from '../domain/projectDocument';
+import type { DashboardDocument, MapGeography, MapPresentation, ProjectDocument } from '../domain/projectDocument';
 import type { VideoSpec } from '../domain/videoTimeline';
 import type { FilterSpec, ViewMode } from '../domain/types';
 
@@ -42,6 +42,7 @@ export type StudioProjectApi = {
   setPresentation: (patch: Partial<MapPresentation>) => void;
   setVideoSpec: (patch: Partial<VideoSpec>) => void;
   setFilters: (filters: FilterSpec[]) => void;
+  setDashboard: (dashboard: DashboardDocument) => void;
   open: (projectId: string) => void;
   create: (name: string) => void;
   /** Adopts a document fetched from the server as a new active project. */
@@ -181,6 +182,10 @@ export function useStudioProject(role: ProjectRole = 'owner', seed?: Partial<Pro
     mutate((current) => (sameJson(filters, current.filters) ? current : { ...current, filters }));
   }, [mutate]);
 
+  const setDashboard = useCallback((dashboard: DashboardDocument) => {
+    mutate((current) => (sameJson(dashboard, current.dashboard) ? current : { ...current, dashboard }));
+  }, [mutate]);
+
   const open = useCallback((projectId: string) => setActiveId(projectId), []);
 
   const create = useCallback((name: string) => {
@@ -237,6 +242,7 @@ export function useStudioProject(role: ProjectRole = 'owner', seed?: Partial<Pro
     setPresentation,
     setVideoSpec,
     setFilters,
+    setDashboard,
     open,
     create,
     adoptDocument,

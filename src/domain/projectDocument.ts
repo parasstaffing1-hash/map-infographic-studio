@@ -3,6 +3,7 @@ import { DEFAULT_COMPOSITION_ID } from './composition';
 import { EMPTY_DATASET_META, type DatasetMeta, type RegionOverrides } from './dataSources';
 import { DEFAULT_INFOGRAPHIC_CONFIG, type Annotation, type DataRow, type InfographicConfig } from './infographic';
 import { DEFAULT_VIDEO_SPEC, type VideoSpec } from './videoTimeline';
+import { DEFAULT_WATERMARK, normalizeWatermark, type WatermarkSettings } from './watermark';
 import type { FilterSpec, StyleSpec, ViewMode } from './types';
 
 /**
@@ -38,6 +39,31 @@ export type BrandKitSnapshot = {
   logoObjectKey?: string;
 };
 
+export type DashboardBlockType = 'kpi' | 'chart' | 'map' | 'table' | 'narrative' | 'three';
+
+export type DashboardBlock = {
+  id: string;
+  type: DashboardBlockType;
+  title: string;
+};
+
+export type DashboardDocument = {
+  name: string;
+  blocks: DashboardBlock[];
+  activeTemplate?: string;
+};
+
+export const DEFAULT_DASHBOARD_BLOCKS: DashboardBlock[] = [
+  { id: 'kpi-1', type: 'kpi', title: 'Total records' },
+  { id: 'chart-1', type: 'chart', title: 'Top regions' },
+  { id: 'map-1', type: 'map', title: 'Geographic spread' },
+  { id: 'three-1', type: 'three', title: 'Global signal' },
+];
+
+export function emptyDashboardDocument(name = 'Untitled dashboard'): DashboardDocument {
+  return { name, blocks: DEFAULT_DASHBOARD_BLOCKS.map((block) => ({ ...block })) };
+}
+
 export type ProjectDocument = {
   schemaVersion: number;
   name: string;
@@ -54,6 +80,8 @@ export type ProjectDocument = {
   filters: FilterSpec[];
   brandKit?: BrandKitSnapshot;
   videoSpec: VideoSpec;
+  dashboard: DashboardDocument;
+  watermark: WatermarkSettings;
 };
 
 export const DEFAULT_MAP_STYLE: StyleSpec = {
@@ -85,6 +113,8 @@ export function emptyProjectDocument(name = 'Untitled project'): ProjectDocument
     regionOverrides: {},
     filters: [],
     videoSpec: { ...DEFAULT_VIDEO_SPEC },
+    dashboard: emptyDashboardDocument(),
+    watermark: { ...DEFAULT_WATERMARK },
   };
 }
 
@@ -128,6 +158,8 @@ export function migrateProjectDocument(input: unknown, fallbackName = 'Untitled 
       chartOverrides: asRecord(record.chartOverrides) as Record<string, Partial<ChartSpec>>,
       regionOverrides: asRecord(record.regionOverrides) as RegionOverrides,
       compositionId: typeof record.compositionId === 'string' ? record.compositionId : base.compositionId,
+      dashboard: mergeDashboard(base.dashboard, record.dashboard),
+      watermark: normalizeWatermark(record.watermark),
     };
   }
 
@@ -149,6 +181,7 @@ export function migrateProjectDocument(input: unknown, fallbackName = 'Untitled 
     currentYear: typeof record.currentYear === 'string' ? record.currentYear : undefined,
     datasetMeta: { ...base.datasetMeta, ...(record.datasetMeta as Partial<DatasetMeta> | undefined) },
     regionOverrides: asRecord(record.regionOverrides) as RegionOverrides,
+    watermark: normalizeWatermark(record.watermark),
   };
 }
 
@@ -171,6 +204,25 @@ function mergePresentation(base: MapPresentation, value: unknown): MapPresentati
     style: { ...base.style, ...(record.style as Partial<StyleSpec> | undefined) },
     hiddenLayers: asRecord(record.hiddenLayers) as Record<string, boolean>,
   };
+}
+
+function mergeDashboard(base: DashboardDocument, value: unknown): DashboardDocument {
+  if (!value || typeof value !== 'object') return base;
+  const record = value as Record<string, unknown>;
+  const blocks = Array.isArray(record.blocks)
+    ? record.blocks.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+      .filter((entry) => isDashboardBlockType(entry.type) && typeof entry.id === 'string' && typeof entry.title === 'string')
+      .map((entry) => ({ id: entry.id as string, type: entry.type as DashboardBlockType, title: entry.title as string }))
+    : base.blocks;
+  return {
+    name: typeof record.name === 'string' && record.name ? record.name : base.name,
+    blocks: blocks.length ? blocks : base.blocks.map((block) => ({ ...block })),
+    activeTemplate: typeof record.activeTemplate === 'string' ? record.activeTemplate : undefined,
+  };
+}
+
+function isDashboardBlockType(value: unknown): value is DashboardBlockType {
+  return value === 'kpi' || value === 'chart' || value === 'map' || value === 'table' || value === 'narrative' || value === 'three';
 }
 
 function asArray<T>(value: unknown): T[] {

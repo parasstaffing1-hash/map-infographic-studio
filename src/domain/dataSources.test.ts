@@ -5,6 +5,7 @@ import {
   assertFetchableUrl,
   attributionLine,
   countMissingValues,
+  cleanDataRows,
   dedupeRows,
   EMPTY_DATASET_META,
   fetchRemoteDataset,
@@ -35,6 +36,18 @@ describe('googleSheetCsvUrl', () => {
 
   it('returns null for a non-Sheets URL', () => {
     expect(googleSheetCsvUrl('https://api.example.com/data.json')).toBeNull();
+  });
+});
+
+describe('cleanDataRows', () => {
+  it('normalizes common Indian aliases and spreadsheet number formatting', () => {
+    const cleaned = cleanDataRows([row('1', '  Bangalore  ', '₹1,25,000')]);
+    expect(cleaned[0]).toMatchObject({ region: 'Bengaluru', value: 125000 });
+  });
+
+  it('keeps categorical values intact', () => {
+    const cleaned = cleanDataRows([row('1', 'Delhi', 'High')]);
+    expect(cleaned[0]?.value).toBe('High');
   });
 });
 

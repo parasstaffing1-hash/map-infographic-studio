@@ -1,6 +1,6 @@
-# Map Studio
+# VizBridge
 
-Map Studio is an interactive geographic-visualization editor and production render platform for India, USA, China, and world data stories. It combines clickable maps, district/constituency drilldowns, infographic templates, data binding, export tools, and a horizontally scalable batch-rendering pipeline.
+VizBridge is an interactive geographic-visualization editor and production render platform for India, USA, China, and world data stories. It combines clickable maps, district/constituency drilldowns, infographic templates, data binding, export tools, and a horizontally scalable batch-rendering pipeline.
 
 ## What it includes
 
@@ -13,6 +13,7 @@ Map Studio is an interactive geographic-visualization editor and production rend
 - Composition-aware export to PNG, JPG, SVG, PDF, PPTX, XLSX, and CSV at social, story, presentation, 4K, and print-A4 sizes.
 - A video studio that submits mp4/webm/gif jobs to the render platform, and pixel-video sequencing in the editor.
 - A production factory panel that submits sharded rendering jobs and tracks progress.
+- An extensible **Toolkit** panel with opt-in deck.gl GPU layers, PMTiles/R2 range archives, DuckDB-WASM + Apache Arrow analytics, Vega-Lite chart specs, React Flow story graphs, Yjs offline collaboration primitives, and OpenTelemetry instrumentation hooks.
 - A stateless rendering API, Redis/BullMQ work queues for batches and videos, Chromium render workers, FFmpeg encoding, S3-compatible object storage, metrics, per-key quotas, health checks, retries, cancellation, and idempotency.
 
 ## Panels
@@ -25,6 +26,7 @@ The left rail opens one panel at a time.
 - **Video studio** — choose a mode (year choropleth, bar race, camera tour, counter), preset, format, duration, frame rate, intro/outro, and transition; scrub the preview locally, then submit the job to the render platform and watch frame progress.
 - **Export** — export the current composition at a size preset, optionally with a transparent background, to an image, vector, document, deck, or spreadsheet.
 - **Production** — submit a sharded NDJSON batch to the render platform and poll it.
+- **Toolkit** — smoke-test and activate advanced visualization/data libraries on demand. The Vega-Lite demo proves the portable chart contract without changing existing chart blocks.
 
 ## Local editor
 

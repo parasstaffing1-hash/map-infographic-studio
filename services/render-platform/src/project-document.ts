@@ -40,6 +40,34 @@ export const BrandKitSnapshotSchema = z
   })
   .passthrough();
 
+const DashboardBlockSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    type: z.enum(['kpi', 'chart', 'map', 'table', 'narrative', 'three']),
+    title: z.string().max(300),
+  })
+  .passthrough();
+
+const DashboardDocumentSchema = z
+  .object({
+    name: z.string().min(1).max(300),
+    blocks: z.array(DashboardBlockSchema).max(200),
+    activeTemplate: z.string().max(200).optional(),
+  })
+  .passthrough();
+
+const WatermarkSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    dataUrl: z.string().max(3_000_000).optional(),
+    fileName: z.string().max(300).optional(),
+    text: z.string().max(300).optional(),
+    position: z.enum(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']).default('bottom-right'),
+    opacity: z.number().min(0.05).max(1).default(0.72),
+    size: z.number().min(4).max(32).default(12),
+  })
+  .passthrough();
+
 export const ProjectDocumentSchema = z
   .object({
     schemaVersion: z.number().int().min(1).max(1_000),
@@ -57,6 +85,8 @@ export const ProjectDocumentSchema = z
     filters: z.array(Loose()).max(500).default([]),
     brandKit: BrandKitSnapshotSchema.optional(),
     videoSpec: Loose(),
+    dashboard: DashboardDocumentSchema.optional(),
+    watermark: WatermarkSchema.optional(),
   })
   .strict();
 

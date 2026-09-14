@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Braces, Download, FileSpreadsheet, FileText, Image, LoaderCircle, Presentation, Save, Table } from 'lucide-react';
+import { Braces, Check, Download, FileSpreadsheet, FileText, Image, LoaderCircle, Presentation, Save, ShieldCheck, Table, Trash2, Upload } from 'lucide-react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { ChartSpec } from '../domain/charts';
 import { EXPORT_PRESETS, downloadBlob, exportComposition, sanitizeFilename, type CompositionExportFormat } from '../domain/exportComposition';
 import type { DatasetMeta } from '../domain/dataSources';
 import type { Annotation, DataRow, InfographicConfig, LegendItem } from '../domain/infographic';
+import { hasWatermarkContent, normalizeWatermark, readWatermarkFile, type WatermarkSettings } from '../domain/watermark';
 
 type Props = {
   map: MapLibreMap | null;
@@ -19,6 +20,9 @@ type Props = {
   logoDataUrl?: string;
   fileStem: string;
   canExport: boolean;
+  watermark: WatermarkSettings;
+  canUseCustomWatermark: boolean;
+  onWatermark: (watermark: WatermarkSettings) => void;
   onToast: (message: string) => void;
 };
 
@@ -30,7 +34,7 @@ const IMAGE_FORMATS: Array<{ id: CompositionExportFormat; label: string; detail:
   { id: 'pptx', label: 'PPTX', detail: 'Slide deck', icon: <Presentation size={18} /> },
 ];
 
-export function ExportStudioPanel({ map, compositionId, config, chartOverrides, legend, annotations, rows, currentYear, datasetMeta, logoDataUrl, fileStem, canExport, onToast }: Props) {
+export function ExportStudioPanel({ map, compositionId, config, chartOverrides, legend, annotations, rows, currentYear, datasetMeta, logoDataUrl, fileStem, canExport, watermark, canUseCustomWatermark, onWatermark, onToast }: Props) {
   const [presetId, setPresetId] = useState(EXPORT_PRESETS[0].id);
   const [transparent, setTransparent] = useState(false);
   const [busy, setBusy] = useState<CompositionExportFormat | null>(null);
@@ -45,12 +49,25 @@ export function ExportStudioPanel({ map, compositionId, config, chartOverrides, 
         transparent: transparent && format !== 'jpg' && !preset.printSafe,
         fileBase: fileStem,
         logoDataUrl,
+        watermark,
       });
       onToast(`${format.toUpperCase()} exported at ${preset.width}×${preset.height}`);
     } catch (error) {
       onToast(error instanceof Error ? error.message : `Could not export ${format.toUpperCase()}`);
     } finally {
       setBusy(null);
+    }
+  };
+
+  const updateWatermark = (change: Partial<WatermarkSettings>) => onWatermark(normalizeWatermark({ ...watermark, ...change }));
+  const uploadWatermark = async (file?: File) => {
+    if (!file || !canUseCustomWatermark) return;
+    try {
+      const dataUrl = await readWatermarkFile(file);
+      onWatermark(normalizeWatermark({ ...watermark, enabled: true, dataUrl, fileName: file.name }));
+      onToast('Watermark added to this project');
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Could not add the watermark');
     }
   };
 
@@ -74,6 +91,33 @@ export function ExportStudioPanel({ map, compositionId, config, chartOverrides, 
         <span><strong>Transparent background</strong><small>PNG, SVG and PDF only. Ignored for JPG and print presets.</small></span>
         <input type="checkbox" checked={transparent} onChange={(event) => setTransparent(event.target.checked)} disabled={preset.printSafe} />
       </label>
+
+      <div className="panel-label">Custom watermark <span className="pro-badge">PRO</span></div>
+      {!canUseCustomWatermark ? (
+        <div className="watermark-locked">
+          <ShieldCheck size={17} />
+          <div><strong>Use your own watermark on exports</strong><span>Custom watermarking is included with paid VizBridge plans.</span></div>
+        </div>
+      ) : (
+        <div className="watermark-card">
+          <label className="video-toggle watermark-toggle">
+            <span><strong>Include watermark</strong><small>Applied to PNG, JPG, SVG, PDF and PPTX exports.</small></span>
+            <input type="checkbox" checked={watermark.enabled && hasWatermarkContent(watermark)} onChange={(event) => updateWatermark({ enabled: event.target.checked })} disabled={!hasWatermarkContent(watermark)} />
+          </label>
+          <label className="watermark-upload">
+            <Upload size={15} />
+            <span>{watermark.fileName || 'Upload logo or watermark image'}</span>
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(event) => { void uploadWatermark(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+          </label>
+          <label className="production-field"><span>Watermark text (optional)</span><input value={watermark.text ?? ''} onChange={(event) => updateWatermark({ text: event.target.value, enabled: Boolean(event.target.value.trim()) || watermark.enabled })} placeholder="Your brand or publication" /></label>
+          <div className="watermark-grid">
+            <label className="select-row"><span>Position</span><select value={watermark.position} onChange={(event) => updateWatermark({ position: event.target.value as WatermarkSettings['position'] })}><option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option><option value="center">Center</option></select></label>
+            <label className="range-row"><span>Opacity</span><output>{Math.round(watermark.opacity * 100)}%</output><input type="range" min="5" max="100" value={Math.round(watermark.opacity * 100)} onChange={(event) => updateWatermark({ opacity: Number(event.target.value) / 100 })} /></label>
+            <label className="range-row"><span>Size</span><output>{watermark.size}%</output><input type="range" min="4" max="32" value={watermark.size} onChange={(event) => updateWatermark({ size: Number(event.target.value) })} /></label>
+          </div>
+          {(watermark.dataUrl || watermark.text) && <div className="watermark-status"><Check size={13} /> <span>{watermark.dataUrl ? 'Image ready' : 'Text watermark ready'}</span><button className="text-button" onClick={() => onWatermark({ ...normalizeWatermark(watermark), dataUrl: undefined, fileName: undefined, text: undefined, enabled: false })}><Trash2 size={13} /> Clear</button></div>}
+        </div>
+      )}
 
       <div className="panel-label">Visual exports</div>
       <div className="export-format-grid">

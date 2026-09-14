@@ -6,14 +6,17 @@ import {
   DEFAULT_GEOGRAPHY,
   DEFAULT_MAP_STYLE,
   PROJECT_SCHEMA_VERSION,
+  emptyDashboardDocument,
   isViewMode,
   migrateProjectDocument,
+  type DashboardDocument,
   type MapGeography,
   type MapPresentation,
   type ProjectDocument,
 } from './projectDocument';
 import { DEFAULT_VIDEO_SPEC, type VideoSpec } from './videoTimeline';
 import type { FilterSpec, ViewMode } from './types';
+import { DEFAULT_WATERMARK, normalizeWatermark, type WatermarkSettings } from './watermark';
 
 export const PROJECT_STORAGE_KEY = 'map-studio-projects-v1';
 /** The single-project key used before projects existed. Migrated on first load. */
@@ -33,6 +36,8 @@ export type ProjectVersion = {
   compositionId?: string;
   chartOverrides?: Record<string, Partial<ChartSpec>>;
   currentYear?: string;
+  dashboard?: DashboardDocument;
+  watermark?: WatermarkSettings;
 };
 
 export type Project = {
@@ -55,6 +60,8 @@ export type Project = {
   currentYear?: string;
   datasetMeta: DatasetMeta;
   regionOverrides: RegionOverrides;
+  dashboard: DashboardDocument;
+  watermark: WatermarkSettings;
   brandKitId?: string;
   /** Newest first, capped so localStorage cannot grow without bound. */
   versions: ProjectVersion[];
@@ -96,6 +103,8 @@ export function createProject(name = 'Untitled project', patch: Partial<Project>
     annotations: [],
     datasetMeta: { ...EMPTY_DATASET_META },
     regionOverrides: {},
+    dashboard: emptyDashboardDocument(),
+    watermark: { ...DEFAULT_WATERMARK },
     versions: [],
     ...patch,
   };
@@ -120,6 +129,8 @@ export function pushVersion(project: Project, label = 'Autosave'): Project {
     compositionId: project.compositionId,
     chartOverrides: project.chartOverrides,
     currentYear: project.currentYear,
+    dashboard: project.dashboard,
+    watermark: project.watermark,
   };
   return { ...project, updatedAt: version.savedAt, versions: [version, ...project.versions].slice(0, MAX_VERSIONS) };
 }
@@ -140,6 +151,8 @@ export function restoreVersion(project: Project, versionId: string): Project {
     compositionId: version.compositionId ?? snapshotted.compositionId,
     chartOverrides: version.chartOverrides ?? snapshotted.chartOverrides,
     currentYear: version.currentYear ?? snapshotted.currentYear,
+    dashboard: version.dashboard ?? snapshotted.dashboard,
+    watermark: version.watermark ?? snapshotted.watermark,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -215,6 +228,8 @@ function normalizeProject(project: Partial<Project>): Project {
     chartOverrides: project.chartOverrides ?? {},
     datasetMeta: { ...EMPTY_DATASET_META, ...project.datasetMeta },
     regionOverrides: project.regionOverrides ?? {},
+    dashboard: normalizeDashboard(project.dashboard, base.dashboard),
+    watermark: normalizeWatermark(project.watermark),
     rows: Array.isArray(project.rows) ? project.rows : [],
     annotations: Array.isArray(project.annotations) ? project.annotations : [],
     versions: Array.isArray(project.versions) ? project.versions : [],
@@ -255,6 +270,8 @@ export type SharePayload = {
   annotations: Annotation[];
   currentYear?: string;
   datasetMeta: DatasetMeta;
+  dashboard?: DashboardDocument;
+  watermark?: WatermarkSettings;
 };
 
 export function toSharePayload(project: Project): SharePayload {
@@ -271,6 +288,8 @@ export function toSharePayload(project: Project): SharePayload {
     annotations: project.annotations,
     currentYear: project.currentYear,
     datasetMeta: project.datasetMeta,
+    dashboard: project.dashboard,
+    watermark: project.watermark,
   };
 }
 
@@ -364,6 +383,8 @@ export function toProjectDocument(project: Project, brandKits: BrandKit[] = []):
     regionOverrides: project.regionOverrides,
     filters: project.filters,
     videoSpec: project.videoSpec,
+    dashboard: project.dashboard,
+    watermark: project.watermark,
     brandKit: kit
       ? {
           id: kit.id,
@@ -396,9 +417,21 @@ export function projectFromDocument(input: unknown, identity: Partial<Project> =
     currentYear: document.currentYear,
     datasetMeta: document.datasetMeta,
     regionOverrides: document.regionOverrides,
+    dashboard: document.dashboard,
+    watermark: document.watermark,
     filters: document.filters,
     videoSpec: document.videoSpec,
     brandKitId: document.brandKit?.id ?? identity.brandKitId,
     versions: Array.isArray(identity.versions) ? identity.versions : base.versions,
+  };
+}
+
+function normalizeDashboard(value: Partial<DashboardDocument> | undefined, fallback: DashboardDocument): DashboardDocument {
+  if (!value || !Array.isArray(value.blocks)) return fallback;
+  const blocks = value.blocks.filter((block) => Boolean(block) && typeof block.id === 'string' && typeof block.title === 'string');
+  return {
+    name: typeof value.name === 'string' && value.name ? value.name : fallback.name,
+    blocks: blocks.length ? blocks : fallback.blocks.map((block) => ({ ...block })),
+    activeTemplate: typeof value.activeTemplate === 'string' ? value.activeTemplate : undefined,
   };
 }

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Cloud, Copy, Database, Download, FileSpreadsheet, Link2, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Check, Cloud, Copy, Database, Download, FileSpreadsheet, Link2, RefreshCw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { CURATED_DATASETS, type CuratedDataset } from '../domain/curatedDatasets';
 import {
   applyColumnMapping,
+  cleanDataRows,
   countMissingValues,
   dedupeRows,
   fetchRemoteDataset,
@@ -273,6 +274,10 @@ export function DataConnectionsPanel({ rows, features, years, currentYear, resul
 
       {rows.length > 0 && (
         <>
+          <div className="data-cleanup-card">
+            <div><strong><Sparkles size={13} /> Spreadsheet cleanup</strong><small>Trim names, normalize common Indian aliases, and parse commas, ₹, and percentage values.</small></div>
+            <button className="outline-button" type="button" onClick={() => { onRowsChange(cleanDataRows(rows), { rowCount: rows.length }); onToast('Data cleaned · names and numeric values normalized'); }}><Sparkles size={13} /> Auto-clean data</button>
+          </div>
           <div className="match-summary">
             <div className="match-good"><Check size={15} /><span><strong>{result.matchedRows}</strong> matched</span></div>
             <div className={unresolved.length ? 'match-bad' : 'match-good'}>{unresolved.length ? <AlertTriangle size={15} /> : <Check size={15} />}<span><strong>{unresolved.length}</strong> need review</span></div>
